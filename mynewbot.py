@@ -10,7 +10,7 @@ import asyncio
 # ======================
 #   ENVIRONMENT VARS
 # ======================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("8297806232:AAHl3aBmcJoV3_AZWqHnangXoHf97rJTJKM")
 APP_URL = os.environ.get("APP_URL")  # https://your-app.onrender.com
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -86,20 +86,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================
 #   WEBHOOK MODE
 # ======================
+# ======================
+#   POLLING MODE (التشغيل المحلي)
+# ======================
 async def main():
+    if not BOT_TOKEN:
+        log.error("BOT_TOKEN environment variable not set!")
+        print("الرجاء تعيين متغير البيئة BOT_TOKEN !")
+        return
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # تشغيل webhook
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{APP_URL}/webhook"
-    )
+    # تشغيل البوت في وضع الاستقصاء
+    print("Bot is starting in Polling Mode...")
+    await app.run_polling(poll_interval=3.0)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+
