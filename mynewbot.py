@@ -1,59 +1,53 @@
 import os
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
-import asyncio
 
-# -------- ENV VARIABLES FROM RENDER --------
+# ================== الإعدادات ==================
+# هنجِيب التوكن من Environment Variable على Render
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("APP_URL")  # https://your-service.onrender.com
-PORT = int(os.environ.get("PORT", 10000))
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("edu-bot")
-
-
-def kb(rows):
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("edu-bot")
 
 
-# -------- MENUS --------
-MENU_DATA = {
-    "main": {
-        "text": "منصة تعليمية لطلاب جميع المراحل\n\nمن فضلك اختر المرحلة:",
-        "buttons": [["الثانوية", "المتوسطة", "الابتدائية"], ["روابط مهمة"]],
-    }
-}
-
-
+# ================== الأوامر ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        MENU_DATA["main"]["text"],
-        reply_markup=kb(MENU_DATA["main"]["buttons"])
+        "👋 أهلاً! البوت شغال من Render.\n\n"
+        "جرّب تبعتلي أي رسالة وأنا هكررها لك 😉"
     )
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("البوت يعمل الآن ✔️")
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # يكرر نفس الكلام اللى المستخدم كتبه
+    await update.message.reply_text(update.message.text)
 
 
-# -------- MAIN (WEBHOOK MODE) --------
-async def main():
+# ================== MAIN (Polling عادي) ==================
+def main():
+    if not BOT_TOKEN:
+        raise RuntimeError("❌ BOT_TOKEN is not set in environment variables!")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-    # Webhook mode
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{APP_URL}/webhook"
-    )
+    print("✅ Bot is running with polling...")
+    # run_polling بلوكينج، ومش محتاجة asyncio.run
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
