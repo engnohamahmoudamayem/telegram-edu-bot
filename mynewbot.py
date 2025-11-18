@@ -1,83 +1,71 @@
 import os
 import logging
-from telegram import Update, ReplyKeyboardMarkup # Added ReplyKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-import asyncio # Added asyncio import
+from contextlib import asynccontextmanager
+from http import HTTPStatus
+
+from fastapi import FastAPI, Request, Response
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from dotenv import load_dotenv
+
+# Load environment variables (useful for local testing)
+load_dotenv() 
 
 # ======================
 #   ENVIRONMENT VARS & LOGGING
 # ======================
-# These variables rely on your Render environment settings
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
-PORT = int(os.environ.get("PORT", "10000"))
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("edu-bot")
 
 # ======================
-#   KEYBOARD HELPER
+#   HANDLERS (Keep your existing async handlers)
 # ======================
-def kb(rows):
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+async def start(update: Update, context):
+    await update.message.reply_text("البوت اشتغل بنجاح ✔️")
 
-# ======================
-#   HANDLERS
-# ======================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "البوت اشتغل بنجاح ✔️",
-        reply_markup=kb([["اختبار", "رجوع"]])
-    )
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-
-    if text == "اختبار":
-        return await update.message.reply_text("شغال 100% يا باشمهندسة ✔️")
-
-    if text == "رجوع":
-        return await start(update, context)
-
+async def handle_message(update: Update, context):
     await update.message.reply_text("استخدمي الأزرار 👇")
 
 # ======================
-#   MAIN APPLICATION LOGIC (WEBHOOK MODE for Render)
+#   FASTAPI INTEGRATION
 # ======================
 
-async def main():
-    # Check if environment variables are set
-    if not BOT_TOKEN or not APP_URL:
-        log.error("❌ BOT_TOKEN أو APP_URL غير موجودين في إعدادات Render!")
-        # Raising an exception makes Render stop the deploy process with an error message
-        raise RuntimeError("Missing Environment Variables")
+# Initialize the PTB application builder
+ptb_app = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .updater(None)  # We don't use the built-in updater/webhook runner
+    .build()
+)
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Set up the webhook configuration required by Render
-    log.info(f"🚀 Webhook running on port {PORT} with URL {APP_URL}/webhook")
-    
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{APP_URL}/webhook",
-    )
+# Add your handlers
+ptb_app.add_handler(CommandHandler("start", start))
+ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
-# The platform (like Render) will call this function to start the web service.
-if __name__ == "__main__":
-    # In a production environment like Render, we call main() directly.
-    # The platform handles the asyncio event loop and keeps the process running.
-    main() 
+# Define the lifespan manager for FastAPI to start/stop the bot gracefully
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Set the webhook URL when the app starts up
+    await ptb_app.bot.set_webhook(url=f"{APP_URL}/webhook")
+    async with ptb_app:
+        yield
 
+
+# Initialize FastAPI app with the lifespan manager
+app = FastAPI(lifespan=lifespan)
+
+# Define the endpoint where Telegram will send updates (must match APP_URL/webhook)
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    # Process the update using the PTB application
+    update_json = await request.json()
+    update = Update.de_json(update_json, ptb_app.bot)
+    await ptb_app.process_update(update)
+    return Response(status_code=HTTPStatus.OK)
+
+# This script only defines the FastAPI app; it doesn't run a server itself.
+# The 'uvicorn' command on Render runs the server.
