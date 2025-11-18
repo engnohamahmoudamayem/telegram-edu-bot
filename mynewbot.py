@@ -1,6 +1,6 @@
 import os
 import logging
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup # Added ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -8,52 +8,34 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+import asyncio # Added asyncio import
 
-
+# ======================
+#   ENVIRONMENT VARS & LOGGING
+# ======================
+# These variables rely on your Render environment settings
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger("edu-bot")
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 أهلاً! البوت شغال من Render.\n\n"
-        "جرّب تبعتلي أي رسالة وأنا هكررها لك 😉"
-    )
-
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    
-    await update.message.reply_text(update.message.text)
-
-def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("❌ BOT_TOKEN is not set in environment variables!")
-
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-   BOT_TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("APP_URL")    
+APP_URL = os.environ.get("APP_URL")
 PORT = int(os.environ.get("PORT", "10000"))
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("edu-bot")
 
-
+# ======================
+#   KEYBOARD HELPER
+# ======================
 def kb(rows):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
+# ======================
+#   HANDLERS
+# ======================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "البوت اشتغل بنجاح ✔️",
         reply_markup=kb([["اختبار", "رجوع"]])
     )
-
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -66,24 +48,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("استخدمي الأزرار 👇")
 
-
+# ======================
+#   MAIN APPLICATION LOGIC (WEBHOOK MODE for Render)
+# ======================
 
 async def main():
+    # Check if environment variables are set
     if not BOT_TOKEN or not APP_URL:
-        print("❌ BOT_TOKEN أو APP_URL غير موجودين")
-        return
+        log.error("❌ BOT_TOKEN أو APP_URL غير موجودين في إعدادات Render!")
+        # Raising an exception makes Render stop the deploy process with an error message
+        raise RuntimeError("Missing Environment Variables")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    print("✅ Bot is running with polling...")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    app.run_polling()
-
-    print("🚀 Webhook running...")
-
+    # Set up the webhook configuration required by Render
+    log.info(f"🚀 Webhook running on port {PORT} with URL {APP_URL}/webhook")
+    
     await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
@@ -91,6 +75,7 @@ async def main():
     )
 
 
-
 if __name__ == "__main__":
-    main()
+    # Run the main asynchronous function
+    # Note: If this is running on Render, the platform handles the execution lifecycle
+    asyncio.run(main())
