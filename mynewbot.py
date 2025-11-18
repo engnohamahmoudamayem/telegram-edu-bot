@@ -9,9 +9,7 @@ from telegram.ext import (
     filters,
 )
 
-<<<<<<< HEAD
-# ================== الإعدادات ==================
-# هنجِيب التوكن من Environment Variable على Render
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 logging.basicConfig(
@@ -21,7 +19,6 @@ logging.basicConfig(
 logger = logging.getLogger("edu-bot")
 
 
-# ================== الأوامر ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 أهلاً! البوت شغال من Render.\n\n"
@@ -30,10 +27,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # يكرر نفس الكلام اللى المستخدم كتبه
+    
     await update.message.reply_text(update.message.text)
 
-=====
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("❌ BOT_TOKEN is not set in environment variables!")
