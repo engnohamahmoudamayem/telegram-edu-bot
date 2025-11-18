@@ -75,7 +75,9 @@ async def main():
     )
 
 
+# The platform (like Render) will call this function to start the web service.
 if __name__ == "__main__":
-    # Run the main asynchronous function
-    # Note: If this is running on Render, the platform handles the execution lifecycle
-    asyncio.run(main())
+    # In a production environment like Render, we call main() directly.
+    # The platform handles the asyncio event loop and keeps the process running.
+    main() 
+
