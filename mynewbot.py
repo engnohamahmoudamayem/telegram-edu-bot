@@ -33,18 +33,14 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # يكرر نفس الكلام اللى المستخدم كتبه
     await update.message.reply_text(update.message.text)
 
-
-# ================== MAIN (Polling عادي) ==================
+=====
 def main():
     if not BOT_TOKEN:
         raise RuntimeError("❌ BOT_TOKEN is not set in environment variables!")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers
-=======
-# ================= ENV VARS =================
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+   BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")    # https://your-app.onrender.com
 PORT = int(os.environ.get("PORT", "10000"))
 
@@ -52,12 +48,10 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("edu-bot")
 
 
-# ================== KEYBOARD ==================
 def kb(rows):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-# ================== START =====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "البوت اشتغل بنجاح ✔️",
@@ -65,7 +59,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ================== MESSAGES ==================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
@@ -78,7 +71,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("استخدمي الأزرار 👇")
 
 
-# ================== WEBHOOK MODE ==================
+
 async def main():
     if not BOT_TOKEN or not APP_URL:
         print("❌ BOT_TOKEN أو APP_URL غير موجودين")
@@ -86,16 +79,13 @@ async def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # handlers
->>>>>>> 520e734578f0da421ae8749711636f8fe6c6e874
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-<<<<<<< HEAD
     print("✅ Bot is running with polling...")
-    # run_polling بلوكينج، ومش محتاجة asyncio.run
+
     app.run_polling()
-=======
+
     print("🚀 Webhook running...")
 
     await app.run_webhook(
@@ -103,7 +93,7 @@ async def main():
         port=PORT,
         webhook_url=f"{APP_URL}/webhook",
     )
->>>>>>> 520e734578f0da421ae8749711636f8fe6c6e874
+
 
 
 if __name__ == "__main__":
