@@ -2,4 +2,8 @@ python-telegram-bot
 fastapi
 uvicorn
 python-dotenv
+<<<<<<< HEAD
 httpx
+=======
+httpx
+>>>>>>> bc40ee774382aa29ed165f742ec8206b76b6f797
