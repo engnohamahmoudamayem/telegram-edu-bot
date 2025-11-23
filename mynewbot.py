@@ -1,164 +1,198 @@
+# ============================
+#   IMPORTS
+# ============================
 import os
 import logging
 import sqlite3
-from contextlib import asynccontextmanager
 from http import HTTPStatus
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 from dotenv import load_dotenv
 
-# Load environment variables (useful for local testing)
-load_dotenv() 
+load_dotenv()
 
-# ======================
-#   ENVIRONMENT VARS & LOGGING
-# ======================
+# ============================
+#   ENVIRONMENT VARIABLES
+# ============================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("APP_URL")
-DB_PATH = os.environ.get("DATABASE_PATH", "edu_bot_data.db") 
+APP_URL = os.environ.get("APP_URL")  # example: https://your-app.onrender.com
+DB_PATH = "edu_bot_data.db"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+if not BOT_TOKEN or not APP_URL:
+    raise RuntimeError("❌ BOT_TOKEN or APP_URL is missing from environment variables!")
+
+
+# ============================
+#   LOGGING
+# ============================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 log = logging.getLogger("edu-bot")
 
-# ======================
-#   DATABASE FUNCTIONS
-# ======================
 
-def get_db_connection():
-    """Establishes a connection to the SQLite database."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row # Allows accessing rows by column name
-    return conn
+# ============================
+#   DATABASE HELPERS
+# ============================
+def db():
+    return sqlite3.connect(DB_PATH)
 
-def setup_database():
-    """Creates the menu table if it doesn't exist."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS menu_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            menu_text TEXT NOT NULL,
-            link_url TEXT,
-            parent_menu_text TEXT NOT NULL
-        )
-    ''')
-    conn.commit()
-    # Ensure 'main' entry exists for basic handling
-    cursor.execute("SELECT id FROM menu_items WHERE menu_text = ?", ("main",))
-    if not cursor.fetchone():
-         cursor.execute("INSERT INTO menu_items (menu_text, parent_menu_text) VALUES (?, ?)", ("main", "root"))
-         conn.commit()
+
+def get_rows(query, args=()):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(query, args)
+    data = cur.fetchall()
     conn.close()
 
-def get_menu_items(parent_text):
-    """Fetches all items belonging to a specific parent menu."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT menu_text, link_url FROM menu_items WHERE parent_menu_text = ?", 
-        (parent_text,)
-    )
-    items = cursor.fetchall()
-    conn.close()
-    # Format items into rows for the keyboard helper
-    rows = []
-    temp_row = []
-    for item in items:
-        temp_row.append(item['menu_text'])
-        if len(temp_row) == 3:
-            rows.append(temp_row)
-            temp_row = []
-    if temp_row:
-        rows.append(temp_row)
-        
+    rows, temp = [], []
+    for item in data:
+        temp.append(item[0])
+        if len(temp) == 2:
+            rows.append(temp)
+            temp = []
+    if temp:
+        rows.append(temp)
+
+    rows.append(["رجوع"])
     return rows
 
-def get_item_details(menu_text):
-    """Fetches details for a specific menu item."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT link_url, parent_menu_text FROM menu_items WHERE menu_text = ?", 
-        (menu_text,)
+
+def get_file_url(subject, term, content_type, subcat):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT file_url FROM files
+        WHERE subject_name=? AND term_name=?
+        AND content_type_name=? AND subcategory_name=?
+    """,
+        (subject, term, content_type, subcat),
     )
-    item = cursor.fetchone()
+    row = cur.fetchone()
     conn.close()
-    return item
-
-# ======================
-#   KEYBOARD HELPER & HANDLERS
-# ======================
-
-def kb(rows):
-    """Helper to format rows into ReplyKeyboardMarkup."""
-    # We add a back button to any menu that isn't the 'main' menu structure
-    # This check is heuristic and might need fine tuning depending on DB structure
-    if rows and not any("الثانوية" in r for r in rows): 
-       rows.append(["رجوع"])
-       
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+    return row[0] if row else None
 
 
-async def send_menu(update: Update, context, menu_name, reply_text):
-    """Helper to fetch and send a menu from the DB."""
-    rows = get_menu_items(menu_name)
-    if not rows and menu_name != 'main':
-        await update.message.reply_text("هذه الفئة فارغة حالياً.", reply_markup=kb([["رجوع"]]))
-    else:
-        await update.message.reply_text(reply_text, reply_markup=kb(rows))
-
-
+# ============================
+#   TELEGRAM BOT HANDLERS
+# ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /start command, shows main menu."""
     context.user_data.clear()
-    context.user_data["current"] = "main"
-    await send_menu(update, context, 'main', "من فضلك اختر المرحلة:")
+    context.user_data["step"] = "stage"
+
+    rows = get_rows("SELECT name FROM stages")
+
+    await update.message.reply_text(
+        "📚 اختر المرحلة:",
+        reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+    )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles text messages and menu navigation."""
     text = update.message.text.strip()
-    current_menu_name = context.user_data.get("current", "main")
-    
-    # Handle 'رجوع' button dynamically
+    step = context.user_data.get("step", "stage")
+
+    # رجوع
     if text == "رجوع":
-        item_details = get_item_details(current_menu_name)
-        if item_details and item_details['parent_menu_text'] != 'root':
-            parent_name = item_details['parent_menu_text']
-            context.user_data["current"] = parent_name
-            return await send_menu(update, context, parent_name, f"عُدنا إلى {parent_name}")
+        return await start(update, context)
+
+    # ========== المرحلة ==========
+    if step == "stage":
+        context.user_data["stage"] = text
+        context.user_data["step"] = "term"
+
+        rows = get_rows("SELECT name FROM terms")
+        return await update.message.reply_text(
+            f"📘 اختر الفصل ({text}):",
+            reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+        )
+
+    # ========== الفصل ==========
+    if step == "term":
+        context.user_data["term"] = text
+        context.user_data["step"] = "grade"
+
+        rows = get_rows(
+            "SELECT name FROM grades WHERE stage_name=?",
+            (context.user_data["stage"],),
+        )
+        return await update.message.reply_text(
+            "📘 اختر الصف:",
+            reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+        )
+
+    # ========== الصف ==========
+    if step == "grade":
+        context.user_data["grade"] = text
+        context.user_data["step"] = "subject"
+
+        rows = get_rows(
+            "SELECT name FROM subjects WHERE grade_name=?",
+            (text,),
+        )
+        return await update.message.reply_text(
+            "📚 اختر المادة:",
+            reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+        )
+
+    # ========== المادة ==========
+    if step == "subject":
+        context.user_data["subject"] = text
+        context.user_data["step"] = "content"
+
+        rows = get_rows("SELECT name FROM content_types")
+        return await update.message.reply_text(
+            "📂 اختر نوع المحتوى:",
+            reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+        )
+
+    # ========== نوع المحتوى ==========
+    if step == "content":
+        context.user_data["content_type"] = text
+        context.user_data["step"] = "subcategory"
+
+        rows = get_rows(
+            "SELECT name FROM content_subcategories WHERE content_type_name=?",
+            (text,),
+        )
+        return await update.message.reply_text(
+            f"📂 اختر ({text}):",
+            reply_markup=ReplyKeyboardMarkup(rows, resize_keyboard=True),
+        )
+
+    # ========== الفئة الفرعية ==========
+    if step == "subcategory":
+        stage = context.user_data["stage"]
+        grade = context.user_data["grade"]
+        term = context.user_data["term"]
+        subject = context.user_data["subject"]
+        content = context.user_data["content_type"]
+        subcat = text
+
+        url = get_file_url(subject, term, content, subcat)
+
+        if url:
+            return await update.message.reply_text(f"📎 الرابط:\n{url}")
         else:
-            return await send_menu(update, context, 'main', "أنت الآن في القائمة الرئيسية.")
+            return await update.message.reply_text("⚠️ لا يوجد ملف لهذا الاختيار!")
 
-    # Check if the text matches an existing menu item name or link
-    item_details = get_item_details(text)
-
-    if item_details:
-        if item_details['link_url']:
-            # If it has a URL, send the link directly
-            return await update.message.reply_text(f"🔗 الرابط:\n{item_details['link_url']}")
-        else:
-            # If it doesn't have a URL, it's a submenu, so display that menu
-            context.user_data["current"] = text
-            return await send_menu(update, context, text, f"📚 اختر من قائمة {text}:")
-
-    return await update.message.reply_text("❗ استخدم الأزرار 👇")
+    await update.message.reply_text("❗ استخدم الأزرار فقط")
 
 
-# ======================
-#   FASTAPI INTEGRATION & BOT SETUP
-# ======================
-
-# Setup database file on application start
-setup_database()
-
-if not BOT_TOKEN or not APP_URL:
-    log.error("Missing BOT_TOKEN or APP_URL environment variables!")
-    raise RuntimeError("Environment variables not configured.") 
-
-# Initialize the PTB application builder
+# ============================
+#   FASTAPI + WEBHOOK
+# ============================
 ptb_app = (
     Application.builder()
     .token(BOT_TOKEN)
@@ -166,23 +200,22 @@ ptb_app = (
     .build()
 )
 
-# Add handlers
 ptb_app.add_handler(CommandHandler("start", start))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Set the webhook URL when the app starts up
-    await ptb_app.bot.set_webhook(url=f"{APP_URL}/webhook")
+    await ptb_app.bot.set_webhook(f"{APP_URL}/webhook")
     async with ptb_app:
         yield
 
-# Initialize FastAPI app with the lifespan manager
+
 app = FastAPI(lifespan=lifespan)
 
+
 @app.post("/webhook")
-async def telegram_webhook(request: Request):
+async def webhook(request: Request):
     update_json = await request.json()
     update = Update.de_json(update_json, ptb_app.bot)
     await ptb_app.process_update(update)
