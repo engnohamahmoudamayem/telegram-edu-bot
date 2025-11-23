@@ -1,14 +1,13 @@
 import os
 import logging
+import sqlite3
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 
-
 from fastapi import FastAPI, Request, Response
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
 # Load environment variables (useful for local testing)
 load_dotenv() 
@@ -18,213 +17,160 @@ load_dotenv()
 # ======================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
+DB_PATH = os.environ.get("DATABASE_PATH", "edu_bot_data.db") 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger("edu-bot")
 
 # ======================
-#   HANDLERS (Keep your existing async handlers)
+#   DATABASE FUNCTIONS
 # ======================
-# ===== MENUS =====
-MENU_DATA = {
-    "main": {
-        "text": "منصة تعليمية لطلاب جميع المراحل\n\nمن فضلك اختر المرحلة:",
-        "buttons": [["الثانوية", "المتوسطة", "الابتدائية"], ["روابط مهمة"]],
-    },
 
-    # المراحل
-    "الابتدائية": {"text": "📚 اختر الفصل:", "buttons": [["الفصل الثاني", "الفصل الأول "], ["رجوع"]]},
-    "المتوسطة":   {"text": "📚 اختر الفصل:", "buttons": [["الفصل الثاني", "الفصل الأول"], ["رجوع"]]},
-    "الثانوية":   {"text": "📚 اختر الفصل:", "buttons": [["الفصل الثاني", "الفصل الأول"], ["رجوع"]]},
+def get_db_connection():
+    """Establishes a connection to the SQLite database."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row # Allows accessing rows by column name
+    return conn
 
-    # ابتدائي
-    "الفصل الأول (ابتدائي)":  {"text": "📘 اختر الصف:", "buttons": [["الصف الثانى","الصف الأول"],["الصف الرابع","الصف الثالث"],["الصف الخامس"],["رجوع"]]},
-    "الفصل الثاني (ابتدائي)": {"text": "📘 اختر الصف:", "buttons": [["الصف الثانى","الصف الأول"],["الصف الرابع","الصف الثالث"],["الصف الخامس"],["رجوع"]]},
+def setup_database():
+    """Creates the menu table if it doesn't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS menu_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            menu_text TEXT NOT NULL,
+            link_url TEXT,
+            parent_menu_text TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    # Ensure 'main' entry exists for basic handling
+    cursor.execute("SELECT id FROM menu_items WHERE menu_text = ?", ("main",))
+    if not cursor.fetchone():
+         cursor.execute("INSERT INTO menu_items (menu_text, parent_menu_text) VALUES (?, ?)", ("main", "root"))
+         conn.commit()
+    conn.close()
 
-    # متوسط
-    "الفصل الأول (متوسط)":  {"text": "📘 اختر الصف:", "buttons": [["الصف السابع","الصف السادس"],["الصف التاسع","الصف الثامن"],["رجوع"]]},
-    "الفصل الثاني (متوسط)": {"text": "📘 اختر الصف:", "buttons": [["الصف السابع","الصف السادس"],["الصف التاسع","الصف الثامن"],["رجوع"]]},
+def get_menu_items(parent_text):
+    """Fetches all items belonging to a specific parent menu."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT menu_text, link_url FROM menu_items WHERE parent_menu_text = ?", 
+        (parent_text,)
+    )
+    items = cursor.fetchall()
+    conn.close()
+    # Format items into rows for the keyboard helper
+    rows = []
+    temp_row = []
+    for item in items:
+        temp_row.append(item['menu_text'])
+        if len(temp_row) == 3:
+            rows.append(temp_row)
+            temp_row = []
+    if temp_row:
+        rows.append(temp_row)
+        
+    return rows
 
-    # ثانوي
-    "الفصل الأول (الثانوية)":  {"text": "📗 اختر الصف/التخصص:", "buttons": [["عاشر"],["حادي عشر أدبي","حادي عشر علمي"],["ثاني عشر أدبي","ثاني عشر علمي"],["رجوع"]]},
-    "الفصل الثاني (الثانوية)": {"text": "📗 اختر الصف/التخصص:", "buttons": [["عاشر"],["حادي عشر أدبي","حادي عشر علمي"],["ثاني عشر أدبي","ثاني عشر علمي"],["رجوع"]]},
+def get_item_details(menu_text):
+    """Fetches details for a specific menu item."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT link_url, parent_menu_text FROM menu_items WHERE menu_text = ?", 
+        (menu_text,)
+    )
+    item = cursor.fetchone()
+    conn.close()
+    return item
 
-    "روابط مهمة": {"text": "🔗 اختر الرابط:", "buttons": [["رابط ١","رابط ٢"],["رجوع"]]},
-}
+# ======================
+#   KEYBOARD HELPER & HANDLERS
+# ======================
 
-IMPORTANT_LINKS = {
-    "رابط ١": "https://example.com/link1",
-    "رابط ٢": "https://example.com/link2",
-}
-
-ALL_SUBJECT_LINKS = {
-    "الابتدائية": {"الرياضيات":"...", "اللغة العربية":"...", "العلوم":"...", "اللغة الإنجليزية":"...", "التربية الإسلامية":"...", "الدراسات الاجتماعية":"..."},
-    "المتوسطة":   {"الرياضيات":"...", "العلوم":"...", "اللغة الإنجليزية":"...", "اللغة العربية":"...", "الاجتماعيات":"..."},
-    "الثانوية":   {"الفيزياء":"...", "الكيمياء":"...", "الأحياء":"...", "الرياضيات":"...", "اللغة العربية":"...", "اللغة الإنجليزية":"...", "الفلسفة":"...", "الإحصاء":"..."},
-}
-
-# ✅ زر رجوع داخل القائمة (الخيار A)
-SUBJECT_OPTIONS = {
-    "main": ["مذكرات", "اختبارات", "فيديوهات", "رجوع"],
-    "مذكرات": ["مذكرات نيو", "مذكرات أخرى", "رجوع"],
-    "مذكرات نيو": ["المذكرة الشاملة", "ملخصات", "رجوع"],
-    "اختبارات": ["قصير أول", "قصير ثاني", "فاينال", "أوراق عمل", "رجوع"],
-    "فيديوهات": ["مراجعة", "حل اختبارات", "رجوع"],
-}
+def kb(rows):
+    """Helper to format rows into ReplyKeyboardMarkup."""
+    # We add a back button to any menu that isn't the 'main' menu structure
+    # This check is heuristic and might need fine tuning depending on DB structure
+    if rows and not any("الثانوية" in r for r in rows): 
+       rows.append(["رجوع"])
+       
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-# ===== Helper keyboard function =====
-def kb(rows): return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+async def send_menu(update: Update, context, menu_name, reply_text):
+    """Helper to fetch and send a menu from the DB."""
+    rows = get_menu_items(menu_name)
+    if not rows and menu_name != 'main':
+        await update.message.reply_text("هذه الفئة فارغة حالياً.", reply_markup=kb([["رجوع"]]))
+    else:
+        await update.message.reply_text(reply_text, reply_markup=kb(rows))
 
 
-async def show_menu(update: Update, key: str):
-    m = MENU_DATA[key]
-    await update.message.reply_text(m["text"], reply_markup=kb(m["buttons"]))
-
-
-# ===== Start command =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /start command, shows main menu."""
     context.user_data.clear()
-    context.user_data["history"] = []      # back stack
     context.user_data["current"] = "main"
-    await show_menu(update, "main")
+    await send_menu(update, context, 'main', "من فضلك اختر المرحلة:")
 
 
-# ===== Main Message Handler =====
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles text messages and menu navigation."""
     text = update.message.text.strip()
-    cu = context.user_data.get("current", "main")
-    hist = context.user_data.setdefault("history", [])
-
-    # 🔙 زر رجوع
+    current_menu_name = context.user_data.get("current", "main")
+    
+    # Handle 'رجوع' button dynamically
     if text == "رجوع":
-        if hist:
-            prev = hist.pop()
-            context.user_data["current"] = prev
+        item_details = get_item_details(current_menu_name)
+        if item_details and item_details['parent_menu_text'] != 'root':
+            parent_name = item_details['parent_menu_text']
+            context.user_data["current"] = parent_name
+            return await send_menu(update, context, parent_name, f"عُدنا إلى {parent_name}")
+        else:
+            return await send_menu(update, context, 'main', "أنت الآن في القائمة الرئيسية.")
 
-            if prev in MENU_DATA:
-                return await show_menu(update, prev)
+    # Check if the text matches an existing menu item name or link
+    item_details = get_item_details(text)
 
-            if prev == "subjects":
-                stage = context.user_data.get("stage")
-                subs = list(ALL_SUBJECT_LINKS[stage].keys())
-                return await update.message.reply_text("📚 اختر المادة:", reply_markup=kb([[s] for s in subs] + [["رجوع"]]))
-
-            if prev == "subject_options":
-                return await update.message.reply_text("📂 اختر نوع المحتوى:", reply_markup=kb([[b] for b in SUBJECT_OPTIONS["main"]]))
-
-        context.user_data["current"] = "main"
-        return await show_menu(update, "main")
-
-    # روابط مهمة
-    if text in IMPORTANT_LINKS:
-        return await update.message.reply_text(f"🔗 الرابط:\n{IMPORTANT_LINKS[text]}")
-
-    # الدخول لقائمة مرحلة (ابتدائية/متوسطة/ثانوية)
-    if text in MENU_DATA:
-        hist.append(cu)
-        context.user_data["current"] = text
-        return await show_menu(update, text)
-
-    # ✅ إصلاح الفصل الأول / الثاني
-    if text in ["الفصل الأول", "الفصل الثاني"]:
-        stage = context.user_data.get("current")
-
-        mapping = {
-            "الابتدائية": f"{text} (ابتدائي)",
-            "المتوسطة": f"{text} (متوسط)",
-            "الثانوية": f"{text} (الثانوية)",
-        }
-
-        target = mapping.get(stage)
-
-        hist.append(cu)
-        context.user_data["current"] = target
-        return await show_menu(update, target)
-
-    # اختيار الصف → إظهار مواد الصف
-    grades = ["الصف الأول","الصف الثاني","الصف الثالث","الصف الرابع","الصف الخامس",
-              "الصف السادس","الصف السابع","الصف الثامن","الصف التاسع",
-              "عاشر","حادي عشر أدبي","حادي عشر علمي","ثاني عشر أدبي","ثاني عشر علمي"]
-
-    if text in grades:
-        stage = "الابتدائية" if text in grades[:5] else "المتوسطة" if text in grades[5:9] else "الثانوية"
-        context.user_data["stage"] = stage
-        context.user_data["current"] = "subjects"
-        hist.append(cu)
-
-        subs = list(ALL_SUBJECT_LINKS[stage].keys())
-        return await update.message.reply_text("📚 اختر المادة:", reply_markup=kb([[s] for s in subs] + [["رجوع"]]))
-
-    # اختيار مادة → عرض (مذكرات / اختبارات / فيديوهات)
-    if context.user_data.get("current") == "subjects":
-        stage = context.user_data.get("stage")
-        if stage and text in ALL_SUBJECT_LINKS[stage]:
-            context.user_data["selected_subject"] = text
-            context.user_data["current"] = "subject_options"
-            hist.append("subjects")
-
-            return await update.message.reply_text("📂 اختر نوع المحتوى:", reply_markup=kb([[b] for b in SUBJECT_OPTIONS["main"]]))
-
-    # اختيار نوع المحتوى (مذكرات/اختبارات/فيديوهات)
-    if text in SUBJECT_OPTIONS:
-        context.user_data["current"] = text
-        hist.append("subject_options")
-        return await update.message.reply_text(f"📂 اختر المطلوب ({text}):", reply_markup=kb([[b] for b in SUBJECT_OPTIONS[text]]))
-
-    # روابط داخل القوائم
-        # ===== روابط نهائية للمذكرات =====
-    if context.user_data.get("current") == "مذكرات نيو":
-        if text == "المذكرة الشاملة":
-            return await update.message.reply_text("📎 رابط المذكرة الشاملة:\nhttps://example.com/full_note.pdf")
-
-        if text == "ملخصات":
-            return await update.message.reply_text("📎 رابط الملخصات:\nhttps://example.com/summary_note.pdf")
-
-    # ===== روابط نهائية للاختبارات =====
-    if context.user_data.get("current") == "اختبارات":
-        if text == "قصير أول":
-            return await update.message.reply_text("📎 رابط قصير أول:\nhttps://example.com/quiz1.pdf")
-
-        if text == "قصير ثاني":
-            return await update.message.reply_text("📎 رابط قصير ثاني:\nhttps://example.com/quiz2.pdf")
-
-        if text == "فاينال":
-            return await update.message.reply_text("📎 رابط الفاينل:\nhttps://example.com/final.pdf")
-
-        if text == "أوراق عمل":
-            return await update.message.reply_text("📎 رابط أوراق العمل:\nhttps://example.com/work.pdf")
-
-
-    # ===== روابط نهائية للفيديوهات =====
-    if context.user_data.get("current") == "فيديوهات":
-        if text == "مراجعة":
-            return await update.message.reply_text("🎥 فيديوهات مراجعة:\nhttps://example.com/videos-review")
-
-        if text == "حل اختبارات":
-            return await update.message.reply_text("🎥 فيديوهات حل الاختبارات:\nhttps://example.com/videos-solutions")
+    if item_details:
+        if item_details['link_url']:
+            # If it has a URL, send the link directly
+            return await update.message.reply_text(f"🔗 الرابط:\n{item_details['link_url']}")
+        else:
+            # If it doesn't have a URL, it's a submenu, so display that menu
+            context.user_data["current"] = text
+            return await send_menu(update, context, text, f"📚 اختر من قائمة {text}:")
 
     return await update.message.reply_text("❗ استخدم الأزرار 👇")
 
 
 # ======================
-#   FASTAPI INTEGRATION
+#   FASTAPI INTEGRATION & BOT SETUP
 # ======================
+
+# Setup database file on application start
+setup_database()
+
+if not BOT_TOKEN or not APP_URL:
+    log.error("Missing BOT_TOKEN or APP_URL environment variables!")
+    raise RuntimeError("Environment variables not configured.") 
 
 # Initialize the PTB application builder
 ptb_app = (
     Application.builder()
     .token(BOT_TOKEN)
-    .updater(None)  # We don't use the built-in updater/webhook runner
+    .updater(None)
     .build()
 )
 
-# Add your handlers
+# Add handlers
 ptb_app.add_handler(CommandHandler("start", start))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
-# Define the lifespan manager for FastAPI to start/stop the bot gracefully
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Set the webhook URL when the app starts up
@@ -232,18 +178,12 @@ async def lifespan(app: FastAPI):
     async with ptb_app:
         yield
 
-
 # Initialize FastAPI app with the lifespan manager
 app = FastAPI(lifespan=lifespan)
 
-# Define the endpoint where Telegram will send updates (must match APP_URL/webhook)
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
-    # Process the update using the PTB application
     update_json = await request.json()
     update = Update.de_json(update_json, ptb_app.bot)
     await ptb_app.process_update(update)
     return Response(status_code=HTTPStatus.OK)
-
-# This script only defines the FastAPI app; it doesn't run a server itself.
-# The 'uvicorn' command on Render runs the server.
