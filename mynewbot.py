@@ -25,7 +25,7 @@ load_dotenv()
 # ============================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")  # example: https://your-app.onrender.com
-DB_PATH = "edu_bot_data.db"
+DB_PATH = "education_full.db"
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing in environment variables!")
@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
-log = logging.getLogger("edu-bot")
+log = logging.getLogger("mynewbot")
 
 # ============================
 #   DATABASE CONNECTION
