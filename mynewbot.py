@@ -26,6 +26,90 @@ load_dotenv()
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")  # example: https://your-app.onrender.com
 DB_PATH = "education_full.db"
+# ============================
+#   CREATE DATABASE SCHEMA IF NOT EXISTS
+# ============================
+def initialize_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.executescript("""
+    PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS stages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS terms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stage_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        FOREIGN KEY(stage_id) REFERENCES stages(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS grades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        term_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        FOREIGN KEY(term_id) REFERENCES terms(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS subjects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grade_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        FOREIGN KEY(grade_id) REFERENCES grades(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS subject_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS option_children (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        option_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        FOREIGN KEY(option_id) REFERENCES subject_options(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS subject_option_map (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER NOT NULL,
+        option_id INTEGER NOT NULL,
+        FOREIGN KEY(subject_id) REFERENCES subjects(id),
+        FOREIGN KEY(option_id) REFERENCES subject_options(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS subject_option_children_map (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER NOT NULL,
+        child_id INTEGER NOT NULL,
+        FOREIGN KEY(subject_id) REFERENCES subjects(id),
+        FOREIGN KEY(child_id) REFERENCES option_children(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS resources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER NOT NULL,
+        option_id INTEGER NOT NULL,
+        child_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        url TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(subject_id) REFERENCES subjects(id),
+        FOREIGN KEY(option_id) REFERENCES subject_options(id),
+        FOREIGN KEY(child_id) REFERENCES option_children(id)
+    );
+    """)
+
+    conn.commit()
+    conn.close()
+
+# Run schema init before anything else
+initialize_db()
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing in environment variables!")
