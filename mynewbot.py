@@ -2,6 +2,12 @@
 #   IMPORTS
 # ============================
 import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "education_full.db")
+
+print("📌 DATABASE LOCATION =", DB_PATH)
+
+import os
 import sqlite3
 import logging
 from http import HTTPStatus
