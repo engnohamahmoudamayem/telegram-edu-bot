@@ -25,7 +25,7 @@ load_dotenv()
 # ============================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")  # example: https://your-app.onrender.com
-DB_PATH = "education_full.db"
+DB_PATH = "edu_bot_data.db"
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing in environment variables!")
