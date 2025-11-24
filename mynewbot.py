@@ -25,7 +25,7 @@ load_dotenv()
 # ============================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")  # example: https://your-app.onrender.com
-DB_PATH = "edu_bot_data"
+DB_PATH = "education_full.db"
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing in environment variables!")
@@ -296,17 +296,27 @@ ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_messa
 # ============================
 #   FASTAPI LIFESPAN
 # ============================
+ptb_app = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .updater(None)
+    .build()
+)
+
+ptb_app.add_handler(CommandHandler("start", start))
+ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ptb_app.bot.set_webhook(f"{APP_URL}/webhook")
     async with ptb_app:
         yield
 
+
 app = FastAPI(lifespan=lifespan)
 
-# ============================
-#   WEBHOOK ENDPOINT
-# ============================
+
 @app.post("/webhook")
 async def webhook(request: Request):
     update_json = await request.json()
