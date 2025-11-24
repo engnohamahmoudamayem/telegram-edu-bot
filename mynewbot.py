@@ -243,6 +243,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================
     #   SELECT CONTENT OPTION
     # ============================
+      # ============================
+    #   SELECT CONTENT OPTION
+    # ============================
     if state["step"] == "option":
         cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
         row = cursor.fetchone()
@@ -250,13 +253,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["option_id"] = row[0]
         state["step"] = "suboption"
 
+        # VVVV هذا هو الاستعلام المصحح VVVV
         cursor.execute("""
             SELECT option_children.name
             FROM subject_option_children_map
             JOIN option_children ON option_children.id = subject_option_children_map.child_id
             WHERE subject_option_children_map.subject_id=?
-        """, (state["subject_id"],))
+              AND option_children.option_id=?
+        """, (state["subject_id"], state["option_id"])) 
+        # ^^^^ استخدمنا state["option_id"] هنا ^^^^
+
         children = [c[0] for c in cursor.fetchall()]
+        # ... (بقية الكود لعرض لوحة المفاتيح) ...
+
 
         return await update.message.reply_text(
             "اختر القسم الفرعي:",
