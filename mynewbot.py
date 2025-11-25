@@ -201,20 +201,61 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================
     #   SELECT GRADE
     # ============================
-    if state["step"] == "grade":
-        cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
-        row = cursor.fetchone()
-        if not row: return
-        state["grade_id"] = row[0]
-        state["step"] = "subject"
+   # -------------------------
+#   STEP: GRADE
+# -------------------------
+if state["step"] == "grade":
+    cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
+    row = cursor.fetchone()
+    if not row:
+        return
 
-        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (row[0],))
-        subjects = [s[0] for s in cursor.fetchall()]
+    state["grade_id"] = row[0]
+    state["step"] = "subject"
 
+    # =====================================================
+    #   ترتيب الصفوف يدوي حسب المرحلة
+    # =====================================================
+    stage_id = state["stage_id"]
+
+    # ---------------------- ابتدائي -----------------------
+    if stage_id == 1:   # المرحلة الابتدائية
+        ordered = [
+            ["الصف الأول", "الصف الثاني"],
+            ["الصف الثالث", "الصف الرابع"],
+            ["الصف الخامس"],
+            ["رجوع ↩️"]
+        ]
         return await update.message.reply_text(
-            "اختر المادة:",
-            reply_markup=make_keyboard(subjects)
+            "اختر الصف:",
+            reply_markup=ReplyKeyboardMarkup(ordered, resize_keyboard=True)
         )
+
+    # ---------------------- متوسط -----------------------
+    if stage_id == 2:
+        ordered = [
+            ["الصف السادس", "الصف السابع"],
+            ["الصف الثامن", "الصف التاسع"],
+            ["رجوع ↩️"]
+        ]
+        return await update.message.reply_text(
+            "اختر الصف:",
+            reply_markup=ReplyKeyboardMarkup(ordered, resize_keyboard=True)
+        )
+
+    # ---------------------- ثانوي -----------------------
+    if stage_id == 3:
+        ordered = [
+            ["عاشر"],
+            ["حادي عشر أدبي", "حادي عشر علمي"],
+            ["ثاني عشر أدبي", "ثاني عشر علمي"],
+            ["رجوع ↩️"]
+        ]
+        return await update.message.reply_text(
+            "اختر الصف:",
+            reply_markup=ReplyKeyboardMarkup(ordered, resize_keyboard=True)
+        )
+
 
     # ============================
     #   SELECT SUBJECT
