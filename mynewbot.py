@@ -2,11 +2,6 @@
 #   IMPORTS
 # ============================
 import os
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "education_full.db")
-
-print("📌 DATABASE LOCATION =", DB_PATH)
-
 import sqlite3
 import logging
 from http import HTTPStatus
@@ -30,6 +25,7 @@ load_dotenv()
 # ============================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
+DB_PATH = "education_full.db"
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing!")
@@ -51,37 +47,58 @@ cursor = conn.cursor()
 # ============================
 user_state = {}
 
+# ============================
+#   STATIC OPTIONS
+# ============================
+MAIN_OPTIONS = ["مذكرات", "اختبارات", "فيديوهات"]  # مذكرات يمين
+MEMO_OPTIONS = ["مذكرات نيو", "مذكرات أخرى"]
+MEMO_NEW_OPTIONS = ["المذكرة الشاملة", "ملخصات"]
+TEST_OPTIONS = ["قصير أول", "قصير ثاني", "فاينال", "أوراق عمل"]
+VIDEO_OPTIONS = ["مراجعة", "حل اختبارات"]
+
+# روابط تجريبية
+LINKS_MAP = {
+    "المذكرة الشاملة": "https://example.com/shamela",
+    "ملخصات": "https://example.com/summary",
+    "مذكرات أخرى": "https://example.com/other-notes",
+
+    "قصير أول": "https://example.com/q1",
+    "قصير ثاني": "https://example.com/q2",
+    "فاينال": "https://example.com/final",
+    "أوراق عمل": "https://example.com/sheets",
+
+    "مراجعة": "https://example.com/revision",
+    "حل اختبارات": "https://example.com/exams",
+}
 
 # ============================
-#   GENERIC KEYBOARD MAKER
+#   KEYBOARD MAKER
 # ============================
 def make_keyboard(options):
     rows = []
+    row = []
 
-    # 2 buttons per row
-    for i in range(0, len(options), 2):
-        rows.append(options[i:i+2])
+    for opt in options:
+        row.append(opt)
+        if len(row) == 2:
+            rows.append(row)
+            row = []
 
-    # BACK button in its own row
+    if row:
+        rows.append(row)
+
     rows.append(["رجوع ↩️"])
-
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 # ============================
-#   /START
+#   /start
 # ============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_state[chat_id] = {"step": "stage"}
 
-    # Get stages
-    cursor.execute("SELECT name FROM stages")
-    stages = [row[0] for row in cursor.fetchall()]
-
-    # ORDER: الابتدائية → المتوسطة → الثانوية
-    order = ["الابتدائية", "المتوسطة", "الثانوية"]
-    stages = order
+    stages = ["الابتدائية", "المتوسطة", "الثانوية"]  # الابتدائية يمين
 
     await update.message.reply_text(
         "اختر المرحلة:",
@@ -96,10 +113,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text
 
-    # Handle BACK
+    if chat_id not in user_state:
+        return await start(update, context)
+
+    state = user_state[chat_id]
+
+    # ---------------- BACK --------------
     if text == "رجوع ↩️":
-        state = user_state.get(chat_id, {})
-        step = state.get("step", "")
+        step = state["step"]
 
         if step == "term":
             state["step"] = "stage"
@@ -113,7 +134,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state["step"] = "term"
             cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
             terms = [t[0] for t in cursor.fetchall()]
-            terms.reverse()  # الفصل الثاني يمين
+            terms = ["الفصل الأول", "الفصل الثاني"]
             return await update.message.reply_text(
                 "اختر الفصل:",
                 reply_markup=make_keyboard(terms)
@@ -121,105 +142,153 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if step == "subject":
             state["step"] = "grade"
-            cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
-            grades = [g[0] for g in cursor.fetchall()]
-            return await update.message.reply_text(
-                "اختر الصف:",
-                reply_markup=make_keyboard(grades)
-            )
+            return await handle_grade_return(update, state)
 
-        if step == "option":
+        if step == "main_option":
             state["step"] = "subject"
             cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
-            subjects = [s[0] for s in cursor.fetchall()]
+            names = [n[0] for n in cursor.fetchall()]
             return await update.message.reply_text(
                 "اختر المادة:",
-                reply_markup=make_keyboard(subjects)
+                reply_markup=make_keyboard(names)
             )
 
-        if step == "suboption":
-            state["step"] = "option"
-            cursor.execute("""
-                SELECT subject_options.name
-                FROM subject_option_map
-                JOIN subject_options ON subject_options.id = subject_option_map.option_id
-                WHERE subject_option_map.subject_id=?
-            """, (state["subject_id"],))
-            options = [o[0] for o in cursor.fetchall()]
+        if step in ("memo_kind", "test_kind", "video_kind"):
+            state["step"] = "main_option"
             return await update.message.reply_text(
                 "اختر نوع المحتوى:",
-                reply_markup=make_keyboard(options)
+                reply_markup=make_keyboard(MAIN_OPTIONS)
+            )
+
+        if step == "memo_new_kind":
+            state["step"] = "memo_kind"
+            return await update.message.reply_text(
+                "اختر نوع المذكرة:",
+                reply_markup=make_keyboard(MEMO_OPTIONS)
             )
 
         return await start(update, context)
 
-    # reset if needed
-    if chat_id not in user_state:
-        return await start(update, context)
-
-    state = user_state[chat_id]
-
-    # ============================
-    #   SELECT STAGE
-    # ============================
+    # ---------------- STAGE --------------
     if state["step"] == "stage":
         cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row: return
+        if not row:
+            return
+
         state["stage_id"] = row[0]
         state["step"] = "term"
 
         cursor.execute("SELECT name FROM terms WHERE stage_id=?", (row[0],))
         terms = [t[0] for t in cursor.fetchall()]
-
-        # الفصل الثاني يمين
-        terms.reverse()
+        terms = ["الفصل الأول", "الفصل الثاني"]
 
         return await update.message.reply_text(
             "اختر الفصل:",
             reply_markup=make_keyboard(terms)
         )
 
-    # ============================
-    #   SELECT TERM
-    # ============================
+    # ---------------- TERM --------------
     if state["step"] == "term":
         cursor.execute("SELECT id FROM terms WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row: return
+        if not row:
+            return
+
         state["term_id"] = row[0]
         state["step"] = "grade"
 
-        cursor.execute("SELECT name FROM grades WHERE term_id=?", (row[0],))
-        grades = [g[0] for g in cursor.fetchall()]
+        return await handle_grade_return(update, state)
+
+    # ---------------- GRADE --------------
+    if state["step"] == "grade":
+        cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
+        row = cursor.fetchone()
+        if not row:
+            return
+
+        state["grade_id"] = row[0]
+        state["step"] = "subject"
+
+        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (row[0],))
+        subjects = [s[0] for s in cursor.fetchall()]
 
         return await update.message.reply_text(
-            "اختر الصف:",
-            reply_markup=make_keyboard(grades)
+            "اختر المادة:",
+            reply_markup=make_keyboard(subjects)
         )
 
-    # ============================
-    #   SELECT GRADE
-    # ============================
-   # -------------------------
-#   STEP: GRADE
-# -------------------------
-if state["step"] == "grade":
-    cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
-    row = cursor.fetchone()
-    if not row:
-        return
+    # ---------------- SUBJECT --------------
+    if state["step"] == "subject":
+        state["subject_name"] = text
+        state["step"] = "main_option"
+        return await update.message.reply_text(
+            "اختر نوع المحتوى:",
+            reply_markup=make_keyboard(MAIN_OPTIONS)
+        )
 
-    state["grade_id"] = row[0]
-    state["step"] = "subject"
+    # ---------------- MAIN OPTION --------------
+    if state["step"] == "main_option":
 
-    # =====================================================
-    #   ترتيب الصفوف يدوي حسب المرحلة
-    # =====================================================
+        if text == "مذكرات":
+            state["step"] = "memo_kind"
+            return await update.message.reply_text(
+                "اختر نوع المذكرات:",
+                reply_markup=make_keyboard(MEMO_OPTIONS)
+            )
+
+        if text == "اختبارات":
+            state["step"] = "test_kind"
+            return await update.message.reply_text(
+                "اختر نوع الاختبار:",
+                reply_markup=make_keyboard(TEST_OPTIONS)
+            )
+
+        if text == "فيديوهات":
+            state["step"] = "video_kind"
+            return await update.message.reply_text(
+                "اختر نوع الفيديو:",
+                reply_markup=make_keyboard(VIDEO_OPTIONS)
+            )
+
+    # ---------------- MEMO KIND --------------
+    if state["step"] == "memo_kind":
+
+        if text == "مذكرات نيو":
+            state["step"] = "memo_new_kind"
+            return await update.message.reply_text(
+                "اختر الملف:",
+                reply_markup=make_keyboard(MEMO_NEW_OPTIONS)
+            )
+
+        if text == "مذكرات أخرى":
+            url = LINKS_MAP.get("مذكرات أخرى")
+            return await update.message.reply_text(f"📌 رابط مذكرات أخرى:\n{url}")
+
+    # ---------------- MEMO NEW KIND --------------
+    if state["step"] == "memo_new_kind":
+        url = LINKS_MAP.get(text)
+        return await update.message.reply_text(f"📌 رابط {text}:\n{url}")
+
+    # ---------------- TEST KIND --------------
+    if state["step"] == "test_kind":
+        url = LINKS_MAP.get(text)
+        return await update.message.reply_text(f"📌 رابط {text}:\n{url}")
+
+    # ---------------- VIDEO KIND --------------
+    if state["step"] == "video_kind":
+        url = LINKS_MAP.get(text)
+        return await update.message.reply_text(f"📌 رابط {text}:\n{url}")
+
+
+# ============================
+#   GRADE RETURN HANDLER
+# ============================
+async def handle_grade_return(update, state):
     stage_id = state["stage_id"]
 
-    # ---------------------- ابتدائي -----------------------
-    if stage_id == 1:   # المرحلة الابتدائية
+    # ابتدائي
+    if stage_id == 1:
         ordered = [
             ["الصف الأول", "الصف الثاني"],
             ["الصف الثالث", "الصف الرابع"],
@@ -231,7 +300,7 @@ if state["step"] == "grade":
             reply_markup=ReplyKeyboardMarkup(ordered, resize_keyboard=True)
         )
 
-    # ---------------------- متوسط -----------------------
+    # متوسط
     if stage_id == 2:
         ordered = [
             ["الصف السادس", "الصف السابع"],
@@ -243,7 +312,7 @@ if state["step"] == "grade":
             reply_markup=ReplyKeyboardMarkup(ordered, resize_keyboard=True)
         )
 
-    # ---------------------- ثانوي -----------------------
+    # ثانوي
     if stage_id == 3:
         ordered = [
             ["عاشر"],
@@ -257,98 +326,16 @@ if state["step"] == "grade":
         )
 
 
-    # ============================
-    #   SELECT SUBJECT
-    # ============================
-    if state["step"] == "subject":
-        cursor.execute("SELECT id FROM subjects WHERE name=?", (text,))
-        row = cursor.fetchone()
-        if not row: return
-
-        state["subject_id"] = row[0]
-        state["step"] = "option"
-
-        cursor.execute("""
-            SELECT subject_options.name
-            FROM subject_option_map
-            JOIN subject_options ON subject_options.id = subject_option_map.option_id
-            WHERE subject_option_map.subject_id=?
-        """, (row[0],))
-        options = [o[0] for o in cursor.fetchall()]
-
-        return await update.message.reply_text(
-            "اختر نوع المحتوى:",
-            reply_markup=make_keyboard(options)
-        )
-
-    # ============================
-    #   SELECT CONTENT OPTION
-    # ============================
-      # ============================
-    #   SELECT CONTENT OPTION
-    # ============================
-    if state["step"] == "option":
-        cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
-        row = cursor.fetchone()
-        if not row: return
-        state["option_id"] = row[0]
-        state["step"] = "suboption"
-
-        # VVVV هذا هو الاستعلام المصحح VVVV
-        cursor.execute("""
-            SELECT option_children.name
-            FROM subject_option_children_map
-            JOIN option_children ON option_children.id = subject_option_children_map.child_id
-            WHERE subject_option_children_map.subject_id=?
-              AND option_children.option_id=?
-        """, (state["subject_id"], state["option_id"])) 
-        # ^^^^ استخدمنا state["option_id"] هنا ^^^^
-
-        children = [c[0] for c in cursor.fetchall()]
-        # ... (بقية الكود لعرض لوحة المفاتيح) ...
-
-
-        return await update.message.reply_text(
-            "اختر القسم الفرعي:",
-            reply_markup=make_keyboard(children)
-        )
-
-    # ============================
-    #   SHOW RESOURCES
-    # ============================
-    if state["step"] == "suboption":
-
-        cursor.execute("SELECT id FROM option_children WHERE name=?", (text,))
-        row = cursor.fetchone()
-        if not row:
-            return await update.message.reply_text("❌ القسم غير موجود!")
-        child_id = row[0]
-
-        subject_id = state["subject_id"]
-        option_id = state["option_id"]
-
-        cursor.execute("""
-            SELECT title, url
-            FROM resources
-            WHERE subject_id=? AND option_id=? AND child_id=?
-        """, (subject_id, option_id, child_id))
-
-        data = cursor.fetchall()
-
-        if not data:
-            return await update.message.reply_text("❌ لا يوجد محتوى حتى الآن.")
-
-        msg = "📘 *المحتوى المتاح:*\n\n"
-        for t, u in data:
-            msg += f"📌 *{t}*\n🔗 {u}\n\n"
-
-        return await update.message.reply_text(msg, parse_mode="Markdown")
-
-
 # ============================
 #   TELEGRAM / FASTAPI
 # ============================
-ptb_app = Application.builder().token(BOT_TOKEN).updater(None).build()
+ptb_app = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .updater(None)
+    .build()
+)
+
 ptb_app.add_handler(CommandHandler("start", start))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
