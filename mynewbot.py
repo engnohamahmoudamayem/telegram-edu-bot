@@ -23,7 +23,7 @@ load_dotenv()
 
 # === FIXED DB LOCATION ===
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "edu_bot_data")
+DB_PATH = os.path.join(BASE_DIR, "edu_bot_data.db")
 print("📌 DATABASE LOCATION =", DB_PATH)
 
 # ================================================
