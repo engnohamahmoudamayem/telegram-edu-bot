@@ -52,6 +52,20 @@ log = logging.getLogger("DEBUG-BOT")
 # ================================================
 user_state = {}
 
+# ================================================
+# DEBUG FUNCTION
+# ================================================
+def debug_sql(tag, query, params=()):
+    print("\n==============================")
+    print(f"🔍 DEBUG → {tag}")
+    print("📌 QUERY:", query)
+    print("📌 PARAMS:", params)
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    print("📌 RESULT:", rows)
+    print("==============================\n")
+    return rows
+
 # ============================
 #   GENERIC KEYBOARD MAKER
 # ============================
@@ -71,13 +85,13 @@ def make_keyboard(options):
 # ================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    log.info("🔥🔥 START HANDLER CALLED 🔥🔥")
 
     user_state[chat_id] = {"step": "stage"}
 
-    cursor.execute("SELECT name FROM stages ORDER BY id ASC")
-    stages = cursor.fetchall()
-    log.info(f"🔍 STAGES = {stages}")
+    stages = debug_sql(
+        "GET_ALL_STAGES",
+        "SELECT name FROM stages ORDER BY id ASC"
+    )
 
     await update.message.reply_text(
         "اختر المرحلة:",
@@ -91,50 +105,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text
 
-    log.info(f"📩 USER CLICKED: '{text}'")
-
     if chat_id not in user_state:
-        log.warning("⚠️ USER HAS NO STATE → restarting start()")
         return await start(update, context)
 
     state = user_state[chat_id]
 
     # --------------------------------------------
-    # رجوع
+    # زر الرجوع
     # --------------------------------------------
     if text == "رجوع ↩️":
-        log.info(f"🔙 BACK BUTTON PRESSED | Current step = {state['step']}")
 
         if state["step"] == "term":
             state["step"] = "stage"
-            cursor.execute("SELECT name FROM stages")
-            return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
+            stages = debug_sql("BACK → GET STAGES", "SELECT name FROM stages")
+            return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(stages))
 
         if state["step"] == "grade":
             state["step"] = "term"
-            cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
-            return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
+            terms = debug_sql(
+                "BACK → GET TERMS",
+                "SELECT name FROM terms WHERE stage_id=?",
+                (state["stage_id"],)
+            )
+            return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(terms))
 
         if state["step"] == "subject":
             state["step"] = "grade"
-            cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
-            return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
+            grades = debug_sql(
+                "BACK → GET GRADES",
+                "SELECT name FROM grades WHERE term_id=?",
+                (state["term_id"],)
+            )
+            return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(grades))
 
         if state["step"] == "option":
             state["step"] = "subject"
-            cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
-            return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
+            subjects = debug_sql(
+                "BACK → GET SUBJECTS",
+                "SELECT name FROM subjects WHERE grade_id=?",
+                (state["grade_id"],)
+            )
+            return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(subjects))
 
         if state["step"] == "suboption":
             state["step"] = "option"
-            cursor.execute("""
+            options = debug_sql(
+                "BACK → GET OPTIONS",
+                """
                 SELECT subject_options.name
                 FROM subject_option_map
                 JOIN subject_options
                     ON subject_options.id = subject_option_map.option_id
                 WHERE subject_option_map.subject_id=?
-            """, (state["subject_id"],))
-            return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
+                """,
+                (state["subject_id"],)
+            )
+            return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(options))
 
         return await start(update, context)
 
@@ -142,22 +168,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # اختيار المرحلة
     # --------------------------------------------
     if state["step"] == "stage":
-        log.info(f"📌 STAGE CLICKED = '{text}'")
 
-        cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
-        row = cursor.fetchone()
-        log.info(f"🎯 STAGE MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_STAGE_ID",
+            "SELECT id FROM stages WHERE name=?",
+            (text,)
+        )
 
         if not row:
-            log.warning("❌ Stage not found!")
             return
-
-        state["stage_id"] = row[0]
+        
+        state["stage_id"] = row[0][0]
         state["step"] = "term"
 
-        cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
-        terms = cursor.fetchall()
-        log.info(f"📚 TERMS = {terms}")
+        terms = debug_sql(
+            "GET_TERMS_BY_STAGE",
+            "SELECT name FROM terms WHERE stage_id=?",
+            (state["stage_id"],)
+        )
 
         return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(terms))
 
@@ -165,137 +193,140 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # اختيار الفصل
     # --------------------------------------------
     if state["step"] == "term":
-        log.info(f"📌 TERM CLICKED = '{text}'")
 
-        cursor.execute("SELECT id FROM terms WHERE name=?", (text,))
-        row = cursor.fetchone()
-        log.info(f"🎯 TERM MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_TERM_ID",
+            "SELECT id FROM terms WHERE name=? AND stage_id=?",
+            (text, state["stage_id"])
+        )
 
         if not row:
-            log.warning("❌ Term not found!")
             return
-
-        state["term_id"] = row[0]
+        
+        state["term_id"] = row[0][0]
         state["step"] = "grade"
 
-        cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
-        grades = cursor.fetchall()
-        log.info(f"📚 GRADES = {grades}")
+        grades = debug_sql(
+            "GET_GRADES_BY_TERM",
+            "SELECT name FROM grades WHERE term_id=?",
+            (state["term_id"],)
+        )
 
         return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(grades))
 
     # --------------------------------------------
-    # اختيار الصف
+    # اختيار الصف — تم إصلاحه + debug
     # --------------------------------------------
     if state["step"] == "grade":
-        log.info(f"📌 GRADE CLICKED = '{text}'")
 
-        cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
-        row = cursor.fetchone()
-        log.info(f"🎯 GRADE MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_GRADE_ID",
+            "SELECT id FROM grades WHERE name=? AND term_id=?",
+            (text, state["term_id"])
+        )
 
         if not row:
-            log.warning("❌ Grade not found!")
             return
-
-        state["grade_id"] = row[0]
+        
+        state["grade_id"] = row[0][0]
         state["step"] = "subject"
 
-        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
-        subjects = cursor.fetchall()
-        log.info(f"📚 SUBJECTS = {subjects}")
+        subjects = debug_sql(
+            "GET_SUBJECTS_BY_GRADE",
+            "SELECT name FROM subjects WHERE grade_id=?",
+            (state["grade_id"],)
+        )
 
         return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(subjects))
 
     # --------------------------------------------
-    # اختيار المادة
+    # اختيار المادة — تم إصلاحه + debug
     # --------------------------------------------
     if state["step"] == "subject":
-        log.info(f"📌 SUBJECT CLICKED = '{text}'")
 
-        cursor.execute("SELECT id FROM subjects WHERE name=?", (text,))
-        row = cursor.fetchone()
-        log.info(f"🎯 SUBJECT MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_SUBJECT_ID",
+            "SELECT id FROM subjects WHERE name=? AND grade_id=?",
+            (text, state["grade_id"])
+        )
 
         if not row:
-            log.warning("❌ Subject not found!")
             return
-
-        state["subject_id"] = row[0]
+        
+        state["subject_id"] = row[0][0]
         state["step"] = "option"
 
-        cursor.execute("""
+        options = debug_sql(
+            "GET_OPTIONS",
+            """
             SELECT subject_options.name
             FROM subject_option_map
             JOIN subject_options
                 ON subject_options.id = subject_option_map.option_id
             WHERE subject_option_map.subject_id=?
-        """, (state["subject_id"],))
-
-        options = cursor.fetchall()
-        log.info(f"📚 OPTIONS = {options}")
+            """,
+            (state["subject_id"],)
+        )
 
         return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(options))
 
     # --------------------------------------------
-    # اختيار النوع مذكرات / اختبارات
+    # اختيار النوع — تم إصلاحه + debug
     # --------------------------------------------
     if state["step"] == "option":
-        log.info(f"📌 OPTION CLICKED = '{text}'")
 
-        cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
-        row = cursor.fetchone()
-        log.info(f"🎯 OPTION MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_OPTION_ID",
+            "SELECT id FROM subject_options WHERE name=?",
+            (text,)
+        )
 
         if not row:
-            log.warning("❌ Option not found!")
             return
-
-        state["option_id"] = row[0]
+        
+        state["option_id"] = row[0][0]
         state["step"] = "suboption"
 
-        cursor.execute("""
+        children = debug_sql(
+            "GET_SUBOPTIONS",
+            """
             SELECT option_children.name
             FROM subject_option_children_map
             JOIN option_children
                ON option_children.id = subject_option_children_map.child_id
             WHERE subject_option_children_map.subject_id=?
               AND option_children.option_id=?
-        """, (state["subject_id"], state["option_id"]))
-
-        children = cursor.fetchall()
-        log.info(f"📚 SUBOPTIONS = {children}")
+            """,
+            (state["subject_id"], state["option_id"])
+        )
 
         return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(children))
 
     # --------------------------------------------
-    # اختيار القسم الفرعي النهائي
+    # اختيار القسم الفرعي النهائي — debug
     # --------------------------------------------
     if state["step"] == "suboption":
-        log.info(f"📌 SUBOPTION CLICKED = '{text}'")
 
-        cursor.execute("""
-            SELECT id FROM option_children
-            WHERE name=? AND option_id=?
-        """, (text, state["option_id"]))
-
-        row = cursor.fetchone()
-        log.info(f"🎯 SUBOPTION MATCH RESULT = {row}")
+        row = debug_sql(
+            "GET_CHILD_ID",
+            "SELECT id FROM option_children WHERE name=? AND option_id=?",
+            (text, state["option_id"])
+        )
 
         if not row:
-            log.warning("❌ Suboption not found!")
             return
+        
+        child_id = row[0][0]
 
-        child_id = row[0]
-
-        cursor.execute("""
+        resources = debug_sql(
+            "GET_RESOURCES",
+            """
             SELECT title, url
             FROM resources
             WHERE subject_id=? AND option_id=? AND child_id=?
-        """, (state["subject_id"], state["option_id"], child_id))
-
-        resources = cursor.fetchall()
-        log.info(f"📚 RESOURCES FOUND = {resources}")
+            """,
+            (state["subject_id"], state["option_id"], child_id)
+        )
 
         if not resources:
             return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
@@ -319,17 +350,11 @@ app.state.tg_application = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("🚀 LIFESPAN START")
-    log.info(f"📌 DATABASE FILE = {DB_PATH}")
-    log.info(f"🌍 APP_URL   = {APP_URL}")
-    log.info(f"🚀 BOT_TOKEN = {BOT_TOKEN}")
-
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.state.tg_application = tg_app
-
     await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
 
     async with tg_app:
