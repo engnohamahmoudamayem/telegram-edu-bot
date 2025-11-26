@@ -235,16 +235,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         option_id = state["option_id"]
 
         # ----- حالة مذكرات -----
-        if option_id == 1:
-            cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
-            row = cursor.fetchone()
-            if not row: return
+      # مذكرات → لازم نشوف هل child له subchildren أم لا
+if option_id == 1:
+    cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
+    row = cursor.fetchone()
+    if not row:
+        return
 
-            state["child_id"] = row[0]
-            state["step"] = "subchild"
+    state["child_id"] = row[0]
 
-            cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
-            return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(cursor.fetchall()))
+    # 🔍 هل child هذا له subchildren فعلاً؟
+    cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
+    subs = cursor.fetchall()
+
+    if subs:
+        # له subchildren → نطلعهم
+        state["step"] = "subchild"
+        return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(subs))
+
+    else:
+        # ❗❗ مفيش subchildren → اعرض الروابط مباشرة
+        cursor.execute("""
+            SELECT title, url 
+            FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND (subchild_id IS NULL OR subchild_id=0)
+        """, (state["subject_id"], option_id, state["child_id"]))
+
+        resources = cursor.fetchall()
+
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى.", reply_markup=make_keyboard([]))
+
+        msg = "إليك المحتوى:\n\n" + "\n".join(
+            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+        )
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
 
         # ----- اختبارات / فيديوهات -----
         cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
