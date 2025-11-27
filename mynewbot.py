@@ -40,12 +40,12 @@ cursor = conn.cursor()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
-# === USER STATE MEMORY ===
+# === USER STATE ===
 user_state = {}
 
 
 # ============================================================
-#   KEYBOARD MAKER — Arabic RTL (right→left)
+#   KEYBOARD MAKER — RTL (Right → Left)
 # ============================================================
 def make_keyboard(options):
     rows = []
@@ -55,7 +55,7 @@ def make_keyboard(options):
             opt[0] if isinstance(opt, tuple) else opt
             for opt in options[i:i+2]
         ]
-        row.reverse()              # ← قلب الاتجاه
+        row.reverse()     # ← قلب الاتجاه
         rows.append(row)
 
     rows.append(["رجوع ↩️"])
@@ -69,25 +69,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_state[chat_id] = {"step": "stage"}
 
-    # رسالة استقبال جميلة
-    welcome_msg = (
+    welcome = (
         "✨ *منصة نيو أكاديمي التعليمية* ✨\n"
         "مرحباً بكم في منصتكم التعليمية المتكاملة ❤️\n\n"
-        "📚 اختر المرحلة للبدء:"
+        "📚 *اختر المرحلة للبدء:*"
     )
 
     cursor.execute("SELECT name FROM stages ORDER BY id")
     stages = cursor.fetchall()
 
     await update.message.reply_text(
-        welcome_msg,
+        welcome,
         reply_markup=make_keyboard(stages),
         parse_mode="Markdown"
     )
 
 
 # ============================================================
-#   MAIN MESSAGE HANDLER
+#   MAIN HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -101,7 +100,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.info(f"📩 USER CLICKED: {text}")
 
     # --------------------------------------------------------
-    # زر الرجوع ↩️
+    #   زر الرجوع ↩️
     # --------------------------------------------------------
     if text == "رجوع ↩️":
 
@@ -143,7 +142,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await start(update, context)
 
     # --------------------------------------------------------
-    # المرحلة
+    #   المرحلة
     # --------------------------------------------------------
     if state["step"] == "stage":
         cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
@@ -157,10 +156,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
 
     # --------------------------------------------------------
-    # الفصل
+    #   الفصل
     # --------------------------------------------------------
     if state["step"] == "term":
-        cursor.execute("SELECT id FROM terms WHERE name=? AND stage_id=?", (text, state["stage_id"]))
+        cursor.execute(
+            "SELECT id FROM terms WHERE name=? AND stage_id=?",
+            (text, state["stage_id"])
+        )
         row = cursor.fetchone()
         if not row: return
 
@@ -171,7 +173,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
 
     # --------------------------------------------------------
-    # الصف
+    #   الصف
     # --------------------------------------------------------
     if state["step"] == "grade":
         cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
@@ -181,12 +183,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["grade_id"] = row[0]
         state["step"] = "subject"
 
-        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"]),)
-        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
+        cursor.execute(
+            "SELECT name FROM subjects WHERE grade_id=?",
+            (state["grade_id"],)     # ← ← ← هنا كان الخطأ واتصلح
+        )
         return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
 
     # --------------------------------------------------------
-    # المادة
+    #   المادة
     # --------------------------------------------------------
     if state["step"] == "subject":
         cursor.execute("SELECT id FROM subjects WHERE name=?", (text,))
@@ -206,7 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
 
     # --------------------------------------------------------
-    # OPTION
+    #   OPTION
     # --------------------------------------------------------
     if state["step"] == "option":
 
@@ -224,7 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text(label, reply_markup=make_keyboard(children))
 
     # --------------------------------------------------------
-    # SUBOPTION
+    #   SUBOPTION
     # --------------------------------------------------------
     if state["step"] == "suboption":
 
@@ -246,27 +250,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("""
             SELECT title, url
             FROM resources
-            WHERE subject_id=? AND option_id=? AND child_id=? AND (subchild_id IS NULL OR subchild_id=0)
+            WHERE subject_id=? AND option_id=? AND child_id=? 
+                  AND (subchild_id IS NULL OR subchild_id=0)
         """, (state["subject_id"], option_id, state["child_id"]))
 
-        resources = cursor.fetchall()
+        res = cursor.fetchall()
 
-        if not resources:
+        if not res:
             return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
 
         msg = "إليك المحتوى:\n\n" + "\n".join(
-            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+            f"▪️ <a href='{u}'>{t}</a>" for t, u in res
         )
 
         return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
 
     # --------------------------------------------------------
-    # SUBCHILD
+    #   SUBCHILD
     # --------------------------------------------------------
     if state["step"] == "subchild":
 
         cursor.execute("""
-            SELECT id FROM option_subchildren WHERE name=? AND child_id=?
+            SELECT id FROM option_subchildren 
+            WHERE name=? AND child_id=?
         """, (text, state["child_id"]))
         row = cursor.fetchone()
         if not row: return
@@ -279,13 +285,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
         """, (state["subject_id"], state["option_id"], state["child_id"], subchild_id))
 
-        resources = cursor.fetchall()
+        res = cursor.fetchall()
 
-        if not resources:
+        if not res:
             return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
 
         msg = "إليك المحتوى:\n\n" + "\n".join(
-            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+            f"▪️ <a href='{u}'>{t}</a>" for t, u in res
         )
 
         return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
