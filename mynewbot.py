@@ -149,7 +149,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state["step"] == "term":
             state["step"] = "stage"
             cursor.execute("SELECT name FROM stages ORDER BY id ASC")
-            return await update.message.reply_text("من اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
+            return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
 
         return await start(update, context)
 
@@ -227,49 +227,128 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = "اختر نوع المذكرات:" if state["option_id"] == 1 else "اختر القسم:"
         return await update.message.reply_text(label, reply_markup=make_keyboard(children))
 
-   # ==========================
-# SUBOPTION
-# ==========================
-if state["step"] == "suboption":
-    option_id = state["option_id"]
+    # ==========================
+    # suboption
+    # ==========================
+    if state["step"] == "suboption":
 
-    # GET CHILD ID
+        option_id = state["option_id"]
+
+        # ----- حالة مذكرات -----
+      # مذكرات → لازم نشوف هل child له subchildren أم لا
+if option_id == 1:
     cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
     row = cursor.fetchone()
     if not row:
         return
 
     state["child_id"] = row[0]
-    child_id = state["child_id"]
 
-    # 🔥 CHECK IF THIS CHILD HAS SUBCHILDREN
-    cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (child_id,))
+    # 🔍 هل child هذا له subchildren فعلاً؟
+    cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
     subs = cursor.fetchall()
 
     if subs:
-        # ✔️ HAS subchildren → go to step=subchild
+        # له subchildren → نطلعهم
         state["step"] = "subchild"
         return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(subs))
 
-    # ❗ NO SUBCHILDREN → GET DIRECT RESOURCES
-    cursor.execute("""
-        SELECT title, url 
-        FROM resources
-        WHERE subject_id=? AND option_id=? AND child_id=? 
-          AND (subchild_id IS NULL OR subchild_id=0)
-    """, (state["subject_id"], option_id, child_id))
+    else:
+        # ❗❗ مفيش subchildren → اعرض الروابط مباشرة
+        cursor.execute("""
+            SELECT title, url 
+            FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND (subchild_id IS NULL OR subchild_id=0)
+        """, (state["subject_id"], option_id, state["child_id"]))
 
-    resources = cursor.fetchall()
+        resources = cursor.fetchall()
 
-    if not resources:
-        return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى.", reply_markup=make_keyboard([]))
 
-    msg = "إليك المحتوى:\n\n" + "\n".join(
-        [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
-    )
+        msg = "إليك المحتوى:\n\n" + "\n".join(
+            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+        )
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
 
-    return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
-)
+
+        # ----- اختبارات / فيديوهات -----
+        cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
+        row = cursor.fetchone()
+        if not row: return
+
+        child_id = row[0]
+
+        cursor.execute("""
+            SELECT title, url FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND (subchild_id IS NULL OR subchild_id=0)
+        """, (state["subject_id"], option_id, child_id))
+
+        resources = cursor.fetchall()
+
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
+
+        msg = "إليك المحتوى:\n\n" + "\n".join([f"▪️ <a href='{u}'>{t}</a>" for t, u in resources])
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
+    # ==========================
+    # subchild (المذكرة الشاملة / ملخصات)
+    # ==========================
+    if state["step"] == "subchild":
+        cursor.execute("""
+            SELECT id FROM option_subchildren
+            WHERE name=? AND child_id=?
+        """, (text, state["child_id"]))
+        row = cursor.fetchone()
+        if not row: return
+
+        subchild_id = row[0]
+
+        cursor.execute("""
+            SELECT title, url FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
+        """, (state["subject_id"], state["option_id"], state["child_id"], subchild_id))
+
+        resources = cursor.fetchall()
+
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
+
+        msg = "إليك المحتوى:\n\n" + "\n".join([f"▪️ <a href='{u}'>{t}</a>" for t, u in resources])
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
+    # --------------------------------------------
+    # اختيار النوع — تم إصلاحه + debug
+    # --------------------------------------------
+    if state["step"] == "option":
+
+        row = debug_sql(
+            "GET_OPTION_ID",
+            "SELECT id FROM subject_options WHERE name=?",
+            (text,)
+        )
+
+        if not row:
+            return
+        
+        state["option_id"] = row[0][0]
+        state["step"] = "suboption"
+
+        children = debug_sql(
+            "GET_SUBOPTIONS",
+            """
+            SELECT option_children.name
+            FROM subject_option_children_map
+            JOIN option_children
+               ON option_children.id = subject_option_children_map.child_id
+            WHERE subject_option_children_map.subject_id=?
+              AND option_children.option_id=?
+            """,
+            (state["subject_id"], state["option_id"])
+        )
+
+        return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(children))
 
     # --------------------------------------------
     # اختيار القسم الفرعي النهائي — debug
