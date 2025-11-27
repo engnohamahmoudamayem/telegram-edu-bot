@@ -149,7 +149,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state["step"] == "term":
             state["step"] = "stage"
             cursor.execute("SELECT name FROM stages ORDER BY id ASC")
-            return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
+            return await update.message.reply_text("من اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
 
         return await start(update, context)
 
