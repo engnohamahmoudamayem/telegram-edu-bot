@@ -83,10 +83,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     stages = debug_sql("GET_STAGES", "SELECT name FROM stages ORDER BY id")
 
-    await update.message.reply_text(
-        "اختر المرحلة:",
-        reply_markup=make_keyboard(stages)
-    )
+    welcome_text = (
+    "👑✨ مرحباً بكم في *منصّة نيو أكاديمي* ✨👑\n"
+    "-----------------------------------------\n"
+    "📚 أكبر منصّة تعليمية شاملة للطلاب\n"
+    "📘 مذكرات – 📝 اختبارات – 🎥 فيديوهات شرح\n"
+    "-----------------------------------------\n"
+    "💡 *اختر المرحلة للبدء:*"
+)
+
+await update.message.reply_text(
+    welcome_text,
+    reply_markup=make_keyboard(stages),
+    parse_mode="Markdown"
+)
 
 
 # ============================================================
