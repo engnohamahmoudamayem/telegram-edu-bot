@@ -209,4 +209,131 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE subject_option_map.subject_id=?
         """, (state["subject_id"],))
 
-        retu
+        return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
+
+    # ========================================================
+    #   OPTION (مذكرات – اختبارات – فيديوهات)
+    # ========================================================
+    if state["step"] == "option":
+
+        cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
+        row = cursor.fetchone()
+        if not row: return
+
+        state["option_id"] = row[0]
+        state["step"] = "suboption"
+
+        cursor.execute("SELECT name FROM option_children WHERE option_id=?", (state["option_id"],))
+        children = cursor.fetchall()
+
+        label = "اختر نوع المذكرات:" if state["option_id"] == 1 else "اختر القسم:"
+        return await update.message.reply_text(label, reply_markup=make_keyboard(children))
+
+    # ========================================================
+    #   SUBOPTION
+    # ========================================================
+    if state["step"] == "suboption":
+
+        option_id = state["option_id"]
+
+        cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, option_id))
+        row = cursor.fetchone()
+        if not row: return
+
+        state["child_id"] = row[0]
+
+        cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
+        subs = cursor.fetchall()
+
+        if subs:
+            state["step"] = "subchild"
+            return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(subs))
+
+        cursor.execute("""
+            SELECT title, url
+            FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND (subchild_id IS NULL OR subchild_id=0)
+        """, (state["subject_id"], option_id, state["child_id"]))
+
+        resources = cursor.fetchall()
+
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
+
+        msg = "إليك المحتوى:\n\n" + "\n".join(
+            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+        )
+
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
+    # ========================================================
+    #   SUBCHILD (المذكرة الشاملة / ملخصات)
+    # ========================================================
+    if state["step"] == "subchild":
+
+        cursor.execute("""
+            SELECT id FROM option_subchildren WHERE name=? AND child_id=?
+        """, (text, state["child_id"]))
+        row = cursor.fetchone()
+        if not row: return
+
+        subchild_id = row[0]
+
+        cursor.execute("""
+            SELECT title, url
+            FROM resources
+            WHERE subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
+        """, (state["subject_id"], state["option_id"], state["child_id"], subchild_id))
+
+        resources = cursor.fetchall()
+
+        if not resources:
+            return await update.message.reply_text("لا يوجد محتوى حالياً.", reply_markup=make_keyboard([]))
+
+        msg = "إليك المحتوى:\n\n" + "\n".join(
+            [f"▪️ <a href='{u}'>{t}</a>" for t, u in resources]
+        )
+
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
+
+# ============================================================
+#   FASTAPI + TELEGRAM WEBHOOK
+# ============================================================
+app = FastAPI()
+app.state.tg_application = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tg_app = Application.builder().token(BOT_TOKEN).build()
+    tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    app.state.tg_application = tg_app
+    await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
+
+    async with tg_app:
+        await tg_app.start()
+        yield
+        await tg_app.stop()
+
+
+app.router.lifespan_context = lifespan
+
+
+@app.post("/telegram")
+async def telegram_webhook(request: Request):
+    update = Update.de_json(await request.json(), app.state.tg_application.bot)
+    await app.state.tg_application.process_update(update)
+    return Response(status_code=200)
+
+
+@app.get("/")
+def root():
+    return {"status": "running"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
