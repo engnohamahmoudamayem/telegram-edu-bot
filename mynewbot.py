@@ -6,7 +6,7 @@ import sqlite3
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response, Form
+from fastapi import FastAPI, Request, Response, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -29,6 +29,7 @@ print("📌 DATABASE LOCATION =", DB_PATH)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("❌ BOT_TOKEN or APP_URL missing!")
@@ -41,30 +42,23 @@ log = logging.getLogger("BOT")
 
 user_state = {}
 
-# باسورد الأدمن للوحة التحكم
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
-
-
 # ============================================================
-#   KEYBOARD MAKER — RTL (Right → Left)
+#   KEYBOARD MAKER — RTL
 # ============================================================
 def make_keyboard(options):
     rows = []
-
     for i in range(0, len(options), 2):
         row = [
             opt[0] if isinstance(opt, tuple) else opt
             for opt in options[i:i + 2]
         ]
-        row.reverse()  # قلب الاتجاه يمين/يسار
+        row.reverse()
         rows.append(row)
-
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
-
 # ============================================================
-#   /start COMMAND
+#   START COMMAND
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -72,7 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome = (
         "✨ *منصة نيو أكاديمي التعليمية* ✨\n"
-        "مرحباً بكم في منصتكم التعليمية المتكاملة ❤️\n\n"
+        "مرحباً بكم في منصتكم التعليمية ❤️\n\n"
         "📚 *اختر المرحلة للبدء:*"
     )
 
@@ -85,9 +79,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-
 # ============================================================
-#   MAIN TELEGRAM HANDLER
+#   MAIN BOT HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -100,317 +93,163 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_state[chat_id]
     log.info(f"📩 USER CLICKED: {text}")
 
-    # --------------------------------------------------------
-    #   زر الرجوع ↩️
-    # --------------------------------------------------------
+    # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
 
-        if state.get("step") == "subchild":
-            state["step"] = "suboption"
-            cursor.execute(
-                "SELECT name FROM option_children WHERE option_id=?",
-                (state["option_id"],)
-            )
-            return await update.message.reply_text(
-                "اختر القسم:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+        order = [
+            "subchild", "suboption", "option",
+            "subject", "grade", "term", "stage"
+        ]
 
-        if state.get("step") == "suboption":
+        if state["step"] == "subchild":
+            state["step"] = "suboption"
+            cursor.execute("SELECT name FROM option_children WHERE option_id=?", (state["option_id"],))
+            return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard(cursor.fetchall()))
+
+        if state["step"] == "suboption":
             state["step"] = "option"
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT subject_options.name
                 FROM subject_option_map
-                JOIN subject_options 
-                    ON subject_options.id = subject_option_map.option_id
+                JOIN subject_options ON subject_options.id = subject_option_map.option_id
                 WHERE subject_option_map.subject_id=?
-                """,
-                (state["subject_id"],)
-            )
-            return await update.message.reply_text(
-                "اختر نوع المحتوى:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+            """, (state["subject_id"],))
+            return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state.get("step") == "option":
+        if state["step"] == "option":
             state["step"] = "subject"
-            cursor.execute(
-                "SELECT name FROM subjects WHERE grade_id=?",
-                (state["grade_id"],)
-            )
-            return await update.message.reply_text(
-                "اختر المادة:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+            cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
+            return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state.get("step") == "subject":
+        if state["step"] == "subject":
             state["step"] = "grade"
-            cursor.execute(
-                "SELECT name FROM grades WHERE term_id=?",
-                (state["term_id"],)
-            )
-            return await update.message.reply_text(
-                "اختر الصف:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+            cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
+            return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state.get("step") == "grade":
+        if state["step"] == "grade":
             state["step"] = "term"
-            cursor.execute(
-                "SELECT name FROM terms WHERE stage_id=?",
-                (state["stage_id"],)
-            )
-            return await update.message.reply_text(
-                "اختر الفصل:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+            cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
+            return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state.get("step") == "term":
+        if state["step"] == "term":
             state["step"] = "stage"
             cursor.execute("SELECT name FROM stages ORDER BY id")
-            return await update.message.reply_text(
-                "اختر المرحلة:",
-                reply_markup=make_keyboard(cursor.fetchall())
-            )
+            return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        # لو لأي سبب الستيت ملخبطة نرجعه للبداية
         return await start(update, context)
 
-    # --------------------------------------------------------
-    #   المرحلة
-    # --------------------------------------------------------
+    # ---------------- المرحلة ----------------
     if state["step"] == "stage":
         cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["stage_id"] = row[0]
         state["step"] = "term"
+        cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
+        return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        cursor.execute(
-            "SELECT name FROM terms WHERE stage_id=?",
-            (state["stage_id"],)
-        )
-        return await update.message.reply_text(
-            "اختر الفصل:",
-            reply_markup=make_keyboard(cursor.fetchall())
-        )
-
-    # --------------------------------------------------------
-    #   الفصل
-    # --------------------------------------------------------
+    # ---------------- الفصل ----------------
     if state["step"] == "term":
-        cursor.execute(
-            "SELECT id FROM terms WHERE name=? AND stage_id=?",
-            (text, state["stage_id"])
-        )
+        cursor.execute("SELECT id FROM terms WHERE name=? AND stage_id=?", (text, state["stage_id"]))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["term_id"] = row[0]
         state["step"] = "grade"
+        cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
+        return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        cursor.execute(
-            "SELECT name FROM grades WHERE term_id=?",
-            (state["term_id"],)
-        )
-        return await update.message.reply_text(
-            "اختر الصف:",
-            reply_markup=make_keyboard(cursor.fetchall())
-        )
-
-    # --------------------------------------------------------
-    #   الصف
-    # --------------------------------------------------------
+    # ---------------- الصف ----------------
     if state["step"] == "grade":
         cursor.execute("SELECT id FROM grades WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["grade_id"] = row[0]
         state["step"] = "subject"
+        cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
+        return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        cursor.execute(
-            "SELECT name FROM subjects WHERE grade_id=?",
-            (state["grade_id"],)
-        )
-        return await update.message.reply_text(
-            "اختر المادة:",
-            reply_markup=make_keyboard(cursor.fetchall())
-        )
-
-    # --------------------------------------------------------
-    #   المادة
-    # --------------------------------------------------------
+    # ---------------- المادة ----------------
     if state["step"] == "subject":
         cursor.execute("SELECT id FROM subjects WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["subject_id"] = row[0]
         state["step"] = "option"
-
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT subject_options.name
             FROM subject_option_map
-            JOIN subject_options 
-                ON subject_options.id = subject_option_map.option_id
+            JOIN subject_options ON subject_options.id = subject_option_map.option_id
             WHERE subject_option_map.subject_id=?
-            """,
-            (state["subject_id"],)
-        )
+        """, (state["subject_id"],))
+        return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        return await update.message.reply_text(
-            "اختر نوع المحتوى:",
-            reply_markup=make_keyboard(cursor.fetchall())
-        )
-
-    # --------------------------------------------------------
-    #   OPTION (مذكرات / اختبارات / فيديوهات)
-    # --------------------------------------------------------
+    # ---------------- OPTION ----------------
     if state["step"] == "option":
-
-        cursor.execute(
-            "SELECT id FROM subject_options WHERE name=?",
-            (text,)
-        )
+        cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["option_id"] = row[0]
         state["step"] = "suboption"
+        cursor.execute("SELECT name FROM option_children WHERE option_id=?", (state["option_id"],))
+        return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        cursor.execute(
-            "SELECT name FROM option_children WHERE option_id=?",
-            (state["option_id"],)
-        )
-        children = cursor.fetchall()
-
-        label = "اختر نوع المذكرات:" if state["option_id"] == 1 else "اختر القسم:"
-        return await update.message.reply_text(
-            label,
-            reply_markup=make_keyboard(children)
-        )
-
-    # --------------------------------------------------------
-    #   SUBOPTION
-    # --------------------------------------------------------
+    # ---------------- SUBOPTION ----------------
     if state["step"] == "suboption":
 
-        option_id = state["option_id"]
-
-        cursor.execute(
-            "SELECT id FROM option_children WHERE name=? AND option_id=?",
-            (text, option_id)
-        )
+        cursor.execute("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, state["option_id"]))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         state["child_id"] = row[0]
 
-        cursor.execute(
-            "SELECT name FROM option_subchildren WHERE child_id=?",
-            (state["child_id"],)
-        )
+        cursor.execute("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
         subs = cursor.fetchall()
 
-        # لو فيه subchildren (المذكرة الشاملة / ملخصات)
         if subs:
             state["step"] = "subchild"
-            return await update.message.reply_text(
-                "اختر القسم الفرعي:",
-                reply_markup=make_keyboard(subs)
-            )
+            return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(subs))
 
-        # لو مفيش subchildren → اعرض الروابط مباشرة
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT title, url
             FROM resources
             WHERE subject_id=? AND option_id=? AND child_id=?
-                  AND (subchild_id IS NULL OR subchild_id=0)
-            """,
-            (state["subject_id"], option_id, state["child_id"])
-        )
+              AND (subchild_id IS NULL OR subchild_id=0)
+        """, (state["subject_id"], state["option_id"], state["child_id"]))
 
         resources = cursor.fetchall()
 
         if not resources:
-            return await update.message.reply_text(
-                "لا يوجد محتوى حالياً.",
-                reply_markup=make_keyboard([])
-            )
+            return await update.message.reply_text("لا يوجد محتوى.")
 
-        msg = "إليك المحتوى:\n\n" + "\n".join(
-            f"▪️ <a href='{u}'>{t}</a>" for t, u in resources
-        )
+        msg = "\n".join(f"▪️ <a href='{u}'>{t}</a>" for t, u in resources)
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
 
-        return await update.message.reply_text(
-            msg,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-
-    # --------------------------------------------------------
-    #   SUBCHILD (المذكرة الشاملة / ملخصات)
-    # --------------------------------------------------------
+    # ---------------- SUBCHILD ----------------
     if state["step"] == "subchild":
 
-        cursor.execute(
-            """
-            SELECT id FROM option_subchildren
-            WHERE name=? AND child_id=?
-            """,
-            (text, state["child_id"])
-        )
+        cursor.execute("SELECT id FROM option_subchildren WHERE name=? AND child_id=?", (text, state["child_id"]))
         row = cursor.fetchone()
-        if not row:
-            return
-
+        if not row: return
         subchild_id = row[0]
 
-        cursor.execute(
-            """
+        cursor.execute("""
             SELECT title, url
             FROM resources
             WHERE subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
-            """,
-            (state["subject_id"], state["option_id"], state["child_id"], subchild_id)
-        )
+        """, (state["subject_id"], state["option_id"], state["child_id"], subchild_id))
 
         resources = cursor.fetchall()
 
         if not resources:
-            return await update.message.reply_text(
-                "لا يوجد محتوى حالياً.",
-                reply_markup=make_keyboard([])
-            )
+            return await update.message.reply_text("لا يوجد محتوى.")
 
-        msg = "إليك المحتوى:\n\n" + "\n".join(
-            f"▪️ <a href='{u}'>{t}</a>" for t, u in resources
-        )
-
-        return await update.message.reply_text(
-            msg,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-
+        msg = "\n".join(f"▪️ <a href='{u}'>{t}</a>" for t, u in resources)
+        return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
 
 # ============================================================
-#   FASTAPI APP & WEBHOOK
+#   FASTAPI — TELEGRAM WEBHOOK
 # ============================================================
 app = FastAPI()
 app.state.tg_application = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -419,6 +258,7 @@ async def lifespan(app: FastAPI):
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.state.tg_application = tg_app
+
     await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
 
     async with tg_app:
@@ -426,9 +266,7 @@ async def lifespan(app: FastAPI):
         yield
         await tg_app.stop()
 
-
 app.router.lifespan_context = lifespan
-
 
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
@@ -436,239 +274,129 @@ async def telegram_webhook(request: Request):
     await app.state.tg_application.process_update(update)
     return Response(status_code=200)
 
-
 @app.get("/")
 def root():
     return {"status": "running"}
 
-
 # ============================================================
-#   ADMIN DASHBOARD (WEB) — /admin
+#   ADMIN PANEL HTML
 # ============================================================
 def _fetch_all(query, params=()):
     cursor.execute(query, params)
     return cursor.fetchall()
 
-
 @app.get("/admin", response_class=HTMLResponse)
 def admin_form():
-    subjects = _fetch_all("SELECT id, name FROM subjects ORDER BY id")
-    options = _fetch_all("SELECT id, name FROM subject_options ORDER BY id")
-    children = _fetch_all("SELECT id, name, option_id FROM option_children ORDER BY id")
-    subchildren = _fetch_all("SELECT id, name, child_id FROM option_subchildren ORDER BY id")
-    resources = _fetch_all(
-        "SELECT id, title, url, subject_id, option_id, child_id, subchild_id FROM resources ORDER BY id DESC LIMIT 50"
-    )
 
-    html = f"""
-    <html lang="ar" dir="rtl">
+    subjects = _fetch_all("SELECT id, name FROM subjects")
+    options = _fetch_all("SELECT id, name FROM subject_options")
+    children = _fetch_all("SELECT id, name, option_id FROM option_children")
+    subchildren = _fetch_all("SELECT id, name, child_id FROM option_subchildren")
+    resources = _fetch_all("""
+        SELECT id, title, url, subject_id, option_id, child_id, subchild_id
+        FROM resources ORDER BY id DESC LIMIT 100
+    """)
+
+    return f"""
+    <html lang='ar' dir='rtl'>
     <head>
-        <meta charset="utf-8" />
+        <meta charset='utf-8'>
         <title>لوحة تحكم نيو أكاديمي</title>
         <style>
             body {{
-                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                background: #f5f7fb;
-                margin: 0;
-                padding: 0;
+                font-family: sans-serif;
+                background: #eef2f7;
+                padding: 20px;
             }}
-            .container {{
-                max-width: 1100px;
-                margin: 30px auto;
-                background: #ffffff;
-                padding: 24px 28px;
-                border-radius: 16px;
-                box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
-            }}
-            h1 {{
-                margin-top: 0;
-                color: #1f2933;
-                font-size: 26px;
-            }}
-            .subtitle {{
-                color: #6b7280;
+            .box {{
+                background: white;
+                padding: 20px;
                 margin-bottom: 20px;
-            }}
-            .card {{
-                background: #f9fafb;
                 border-radius: 12px;
-                padding: 18px 20px;
-                margin-bottom: 18px;
-                border: 1px solid #e5e7eb;
+                box-shadow: 0 4px 15px rgba(0,0,0,.1);
             }}
-            .card h2 {{
-                margin-top: 0;
-                font-size: 18px;
-                color: #111827;
-            }}
-            label {{
-                display: block;
-                margin-top: 10px;
-                margin-bottom: 4px;
-                font-size: 14px;
-                color: #374151;
-            }}
-            input[type="text"], input[type="url"], input[type="password"], input[type="number"] {{
+            input {{
+                padding: 8px;
                 width: 100%;
-                padding: 8px 10px;
+                margin-top: 4px;
+                margin-bottom: 10px;
                 border-radius: 8px;
-                border: 1px solid #d1d5db;
-                font-size: 14px;
-                box-sizing: border-box;
-            }}
-            input:focus {{
-                outline: none;
-                border-color: #2563eb;
-                box-shadow: 0 0 0 1px rgba(37, 99, 235, .3);
+                border: 1px solid #ccc;
             }}
             button {{
-                margin-top: 14px;
-                padding: 9px 18px;
-                border-radius: 999px;
-                border: none;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 600;
-                background: linear-gradient(135deg, #2563eb, #4f46e5);
+                padding: 10px 16px;
+                background: #1976d2;
                 color: white;
-                box-shadow: 0 8px 20px rgba(37, 99, 235, .35);
-            }}
-            button:hover {{
-                opacity: .92;
-            }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 10px;
-                font-size: 13px;
-            }}
-            th, td {{
-                border: 1px solid #e5e7eb;
-                padding: 6px 8px;
-                text-align: right;
-            }}
-            th {{
-                background: #f3f4f6;
-                font-weight: 600;
-            }}
-            .pill {{
-                display: inline-block;
-                padding: 2px 8px;
-                border-radius: 999px;
-                background: #e5e7eb;
-                font-size: 11px;
-                color: #374151;
-            }}
-            .small-note {{
-                font-size: 12px;
-                color: #6b7280;
-                margin-top: 4px;
-            }}
-            a {{
-                color: #2563eb;
-                text-decoration: none;
-            }}
-            a:hover {{
-                text-decoration: underline;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
             }}
         </style>
     </head>
+
     <body>
-      <div class="container">
-        <h1>لوحة تحكم نيو أكاديمي (Admin)</h1>
-        <div class="subtitle">من هنا يمكنك إضافة الروابط وربطها بالمواد والخيارات المختلفة 👩‍🏫</div>
+        <h1>✨ لوحة تحكم نيو أكاديمي</h1>
 
-        <div class="card">
-          <h2>➕ إضافة مورد جديد (Resource)</h2>
-          <form method="post" action="/admin/add">
-            <label>كلمة مرور الأدمن:</label>
-            <input type="password" name="password" placeholder="ادخلي كلمة المرور (افتراضيًا: admin123)" required />
+        <div class='box'>
+            <h2>➕ إضافة رابط</h2>
+            <form method='post' action='/admin/add'>
+                <label>كلمة المرور:</label>
+                <input type='password' name='password' required>
 
-            <label>عنوان الملف (Title):</label>
-            <input type="text" name="title" placeholder="مثال: مذكرة الرياضيات - الوحدة الأولى" required />
+                <label>العنوان:</label>
+                <input type='text' name='title' required>
 
-            <label>الرابط (URL):</label>
-            <input type="url" name="url" placeholder="https://..." required />
+                <label>الرابط:</label>
+                <input type='url' name='url' required>
 
-            <label>ID المادة (subject_id):</label>
-            <input type="number" name="subject_id" required />
+                <label>subject_id:</label>
+                <input type='number' name='subject_id' required>
 
-            <label>ID نوع المحتوى (option_id) — مذكرات/اختبارات/فيديوهات:</label>
-            <input type="number" name="option_id" required />
+                <label>option_id:</label>
+                <input type='number' name='option_id' required>
 
-            <label>ID القسم (child_id) — مثل: مذكرات نيو / مذكرات أخرى / قصير أول ...:</label>
-            <input type="number" name="child_id" required />
+                <label>child_id:</label>
+                <input type='number' name='child_id' required>
 
-            <label>ID القسم الفرعي (subchild_id) — اختياري (اتركيه فارغ لو مفيش):</label>
-            <input type="number" name="subchild_id" />
+                <label>subchild_id (اختياري):</label>
+                <input type='number' name='subchild_id'>
 
-            <button type="submit">✅ حفظ المورد</button>
-            <div class="small-note">استخدمي الجداول بالأسفل لمعرفة الأرقام (IDs) الصحيحة لكل مستوى.</div>
-          </form>
+                <button>حفظ</button>
+            </form>
         </div>
 
-        <div class="card">
-          <h2>📚 المواد (subjects)</h2>
-          <table>
-            <tr><th>ID</th><th>الاسم</th></tr>
-            {''.join(f"<tr><td>{sid}</td><td>{name}</td></tr>" for sid, name in subjects)}
-          </table>
-        </div>
+        <div class='box'>
+            <h2>📄 رفع PDF</h2>
+            <form method='post' action='/admin/upload' enctype='multipart/form-data'>
+                <label>كلمة المرور:</label>
+                <input type='password' name='password' required>
 
-        <div class="card">
-          <h2>🧩 أنواع المحتوى (subject_options)</h2>
-          <table>
-            <tr><th>ID</th><th>الاسم</th></tr>
-            {''.join(f"<tr><td>{oid}</td><td>{name}</td></tr>" for oid, name in options)}
-          </table>
-        </div>
+                <label>subject_id:</label>
+                <input type='number' name='subject_id' required>
 
-        <div class="card">
-          <h2>📂 الأقسام (option_children)</h2>
-          <table>
-            <tr><th>ID</th><th>الاسم</th><th>option_id</th></tr>
-            {''.join(f"<tr><td>{cid}</td><td>{name}</td><td>{opt_id}</td></tr>" for cid, name, opt_id in children)}
-          </table>
-        </div>
+                <label>option_id:</label>
+                <input type='number' name='option_id' required>
 
-        <div class="card">
-          <h2>📑 الأقسام الفرعية (option_subchildren)</h2>
-          <table>
-            <tr><th>ID</th><th>الاسم</th><th>child_id</th></tr>
-            {''.join(f"<tr><td>{sid}</td><td>{name}</td><td>{child_id}</td></tr>" for sid, name, child_id in subchildren)}
-          </table>
-        </div>
+                <label>child_id:</label>
+                <input type='number' name='child_id' required>
 
-        <div class="card">
-          <h2>🔗 آخر 50 مورد مضاف (resources)</h2>
-          <table>
-            <tr>
-              <th>ID</th>
-              <th>العنوان</th>
-              <th>الرابط</th>
-              <th>subject_id</th>
-              <th>option_id</th>
-              <th>child_id</th>
-              <th>subchild_id</th>
-            </tr>
-            {''.join(
-                f"<tr><td>{rid}</td>"
-                f"<td>{title}</td>"
-                f"<td><a href='{url}' target='_blank'>فتح</a></td>"
-                f"<td>{sid}</td><td>{oid}</td><td>{cid}</td><td>{scid}</td></tr>"
-                for rid, title, url, sid, oid, cid, scid in resources
-            )}
-          </table>
-        </div>
+                <label>subchild_id (اختياري):</label>
+                <input type='number' name='subchild_id'>
 
-      </div>
+                <label>ملف PDF:</label>
+                <input type='file' name='file' accept='.pdf' required>
+
+                <button>رفع</button>
+            </form>
+        </div>
     </body>
     </html>
     """
-    return html
 
-
-@app.post("/admin/add", response_class=HTMLResponse)
+# ============================================================
+#   ADD LINK
+# ============================================================
+@app.post("/admin/add")
 def admin_add(
     password: str = Form(...),
     title: str = Form(...),
@@ -679,33 +407,55 @@ def admin_add(
     subchild_id: int | None = Form(None),
 ):
     if password != ADMIN_PASSWORD:
-        return HTMLResponse(
-            "<h3 style='font-family: sans-serif; direction: rtl;'>❌ كلمة المرور غير صحيحة</h3>"
-            "<a href='/admin'>🔙 رجوع للوحة التحكم</a>",
-            status_code=401,
-        )
+        return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
 
-    # لو مفيش subchild_id نخليه NULL
-    if subchild_id in ("", None):
-        subchild_id_val = None
-    else:
-        subchild_id_val = subchild_id
-
-    cursor.execute(
-        """
+    cursor.execute("""
         INSERT INTO resources (subject_id, option_id, child_id, subchild_id, title, url)
         VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (subject_id, option_id, child_id, subchild_id_val, title, url),
-    )
-    conn.commit()
+    """, (subject_id, option_id, child_id, subchild_id, title, url))
 
+    conn.commit()
     return RedirectResponse("/admin", status_code=303)
 
+# ============================================================
+#   PDF UPLOAD
+# ============================================================
+@app.post("/admin/upload")
+async def admin_upload(
+    password: str = Form(...),
+    subject_id: int = Form(...),
+    option_id: int = Form(...),
+    child_id: int = Form(...),
+    subchild_id: int = Form(None),
+    file: UploadFile = File(...)
+):
+    if password != ADMIN_PASSWORD:
+        return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
+
+    upload_dir = os.path.join(BASE_DIR, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_path = os.path.join(upload_dir, file.filename)
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    file_url = f"{APP_URL}/files/{file.filename}"
+
+    cursor.execute("""
+        INSERT INTO resources (subject_id, option_id, child_id, subchild_id, title, url)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (subject_id, option_id, child_id, subchild_id, file.filename, file_url))
+
+    conn.commit()
+    return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   DEV SERVER (LOCAL)
+#   SERVE PDF FILES
 # ============================================================
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+@app.get("/files/{filename}")
+async def serve_file(filename: str):
+    file_path = os.path.join(BASE_DIR, "uploads", filename)
+    if not os.path.exists(file_path):
+        return Response("File Not Found", status_code=404)
+
+    return Response(open(file_path, "rb").read(), media_type="application/pdf")
