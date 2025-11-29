@@ -30,7 +30,6 @@ print("📌 DATABASE LOCATION =", DB_PATH)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
-# توكن بسيط للتوثيق فى الكوكيز
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "super-secret-admin-token")
 
 if not BOT_TOKEN or not APP_URL:
@@ -98,12 +97,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
 
-        if state["step"] == "subchild":
+        if state.get("step") == "subchild":
             state["step"] = "suboption"
             cursor.execute("SELECT name FROM option_children WHERE option_id=?", (state["option_id"],))
             return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "suboption":
+        if state.get("step") == "suboption":
             state["step"] = "option"
             cursor.execute("""
                 SELECT subject_options.name
@@ -113,22 +112,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """, (state["subject_id"],))
             return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "option":
+        if state.get("step") == "option":
             state["step"] = "subject"
             cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
             return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "subject":
+        if state.get("step") == "subject":
             state["step"] = "grade"
             cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
             return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "grade":
+        if state.get("step") == "grade":
             state["step"] = "term"
             cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
             return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "term":
+        if state.get("step") == "term":
             state["step"] = "stage"
             cursor.execute("SELECT name FROM stages ORDER BY id")
             return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
@@ -214,9 +213,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("""
             SELECT title, url
             FROM resources
-            WHERE subject_id=? AND option_id=? AND child_id=?
+            WHERE stage_id=? AND term_id=? AND grade_id=?
+              AND subject_id=? AND option_id=? AND child_id=?
               AND (subchild_id IS NULL OR subchild_id=0)
-        """, (state["subject_id"], state["option_id"], state["child_id"]))
+        """, (state["stage_id"], state["term_id"], state["grade_id"],
+              state["subject_id"], state["option_id"], state["child_id"]))
 
         resources = cursor.fetchall()
 
@@ -238,8 +239,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("""
             SELECT title, url
             FROM resources
-            WHERE subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
-        """, (state["subject_id"], state["option_id"], state["child_id"], subchild_id))
+            WHERE stage_id=? AND term_id=? AND grade_id=?
+              AND subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
+        """, (state["stage_id"], state["term_id"], state["grade_id"],
+              state["subject_id"], state["option_id"], state["child_id"], subchild_id))
 
         resources = cursor.fetchall()
 
@@ -357,12 +360,11 @@ def admin_login(password: str = Form(...)):
         return HTMLResponse("❌ كلمة المرور غير صحيحة", status_code=401)
 
     resp = RedirectResponse("/admin", status_code=303)
-    # تخزين التوكن فى الكوكيز
     resp.set_cookie(
         "admin_token",
         ADMIN_TOKEN,
         httponly=True,
-        secure=False,      # لو هتشغلي HTTPS عدّليها True
+        secure=False,  # خليه True لو عندك https
         samesite="lax",
     )
     return resp
@@ -377,9 +379,7 @@ def admin_logout():
 
 def _require_admin(request: Request) -> bool:
     token = request.cookies.get("admin_token")
-    if token != ADMIN_TOKEN:
-        return False
-    return True
+    return token == ADMIN_TOKEN
 
 
 # ============================================================
@@ -391,10 +391,13 @@ def admin_dashboard(request: Request):
     if not _require_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
 
-    subjects = _fetch_all("SELECT id, name FROM subjects")
+    stages = _fetch_all("SELECT id, name FROM stages")
+    terms = _fetch_all("SELECT id, name, stage_id FROM terms")
+    grades = _fetch_all("SELECT id, name, term_id FROM grades")
+    subjects = _fetch_all("SELECT id, name, grade_id FROM subjects")
     options = _fetch_all("SELECT id, name FROM subject_options")
-    children = _fetch_all("SELECT id, name FROM option_children")
-    subchildren = _fetch_all("SELECT id, name FROM option_subchildren")
+    children = _fetch_all("SELECT id, name, option_id FROM option_children")
+    subchildren = _fetch_all("SELECT id, name, child_id FROM option_subchildren")
 
     # resources joined with names
     resources = _fetch_all("""
@@ -402,33 +405,76 @@ def admin_dashboard(request: Request):
             r.id,
             r.title,
             r.url,
-            s.name AS subject_name,
-            o.name AS option_name,
-            c.name AS child_name,
+            st.name AS stage_name,
+            te.name AS term_name,
+            g.name  AS grade_name,
+            s.name  AS subject_name,
+            o.name  AS option_name,
+            c.name  AS child_name,
             sc.name AS subchild_name
         FROM resources r
-        LEFT JOIN subjects s ON s.id = r.subject_id
-        LEFT JOIN subject_options o ON o.id = r.option_id
-        LEFT JOIN option_children c ON c.id = r.child_id
+        LEFT JOIN stages st            ON st.id  = r.stage_id
+        LEFT JOIN terms te             ON te.id  = r.term_id
+        LEFT JOIN grades g             ON g.id   = r.grade_id
+        LEFT JOIN subjects s           ON s.id   = r.subject_id
+        LEFT JOIN subject_options o    ON o.id   = r.option_id
+        LEFT JOIN option_children c    ON c.id   = r.child_id
         LEFT JOIN option_subchildren sc ON sc.id = r.subchild_id
         ORDER BY r.id DESC
     """)
 
-    def make_options(rows):
+    def make_stage_options(rows):
         return "".join([f"<option value='{r[0]}'>{r[1]}</option>" for r in rows])
+
+    def make_term_options(rows):
+        # rows: (id, name, stage_id)
+        return "".join([
+            f"<option value='{r[0]}' data-stage='{r[2]}'>{r[1]}</option>"
+            for r in rows
+        ])
+
+    def make_grade_options(rows):
+        # rows: (id, name, term_id)
+        return "".join([
+            f"<option value='{r[0]}' data-term='{r[2]}'>{r[1]}</option>"
+            for r in rows
+        ])
+
+    def make_subject_options(rows):
+        # rows: (id, name, grade_id)
+        return "".join([
+            f"<option value='{r[0]}' data-grade='{r[2]}'>{r[1]}</option>"
+            for r in rows
+        ])
+
+    def make_simple_options(rows):
+        # rows: (id, name, ...)
+        return "".join([
+            f"<option value='{r[0]}'>{r[1]}</option>"
+            for r in rows
+        ])
 
     rows_html = ""
     for r in resources:
-        res_id, title, url, s_name, o_name, c_name, sc_name = r
+        (
+            res_id, title, url,
+            stage_name, term_name, grade_name,
+            subject_name, option_name,
+            child_name, subchild_name
+        ) = r
+
         rows_html += f"""
         <tr>
             <td>{res_id}</td>
+            <td>{stage_name or ''}</td>
+            <td>{term_name or ''}</td>
+            <td>{grade_name or ''}</td>
+            <td>{subject_name or ''}</td>
+            <td>{option_name or ''}</td>
+            <td>{child_name or ''}</td>
+            <td>{subchild_name or ''}</td>
             <td>{title}</td>
             <td><a href="{url}" target="_blank">افتح</a></td>
-            <td>{s_name or ''}</td>
-            <td>{o_name or ''}</td>
-            <td>{c_name or ''}</td>
-            <td>{sc_name or ''}</td>
             <td>
                 <form method='get' action='/admin/edit/{res_id}' style='display:inline;'>
                     <button type='submit'>تعديل</button>
@@ -526,32 +572,53 @@ def admin_dashboard(request: Request):
             <div class='box col-form'>
                 <h2>➕ إضافة رابط جديد</h2>
                 <form method='post' action='/admin/add'>
-                    <label>العنوان:</label>
-                    <input type='text' name='title' required>
+                    <label>المرحلة:</label>
+                    <select name='stage_id' id='stage_select' required>
+                        <option value=''>اختر المرحلة</option>
+                        {make_stage_options(stages)}
+                    </select>
 
-                    <label>الرابط:</label>
-                    <input type='url' name='url' required>
+                    <label>الفصل:</label>
+                    <select name='term_id' id='term_select' required>
+                        <option value=''>اختر الفصل</option>
+                        {make_term_options(terms)}
+                    </select>
+
+                    <label>الصف:</label>
+                    <select name='grade_id' id='grade_select' required>
+                        <option value=''>اختر الصف</option>
+                        {make_grade_options(grades)}
+                    </select>
 
                     <label>المادة:</label>
-                    <select name='subject_id' required>
-                        {make_options(subjects)}
+                    <select name='subject_id' id='subject_select' required>
+                        <option value=''>اختر المادة</option>
+                        {make_subject_options(subjects)}
                     </select>
 
                     <label>نوع المحتوى:</label>
                     <select name='option_id' required>
-                        {make_options(options)}
+                        <option value=''>اختر نوع المحتوى</option>
+                        {make_simple_options(options)}
                     </select>
 
                     <label>القسم:</label>
                     <select name='child_id' required>
-                        {make_options(children)}
+                        <option value=''>اختر القسم</option>
+                        {make_simple_options(children)}
                     </select>
 
                     <label>القسم الفرعي (اختياري):</label>
                     <select name='subchild_id'>
                         <option value=''>بدون</option>
-                        {make_options(subchildren)}
+                        {make_simple_options(subchildren)}
                     </select>
+
+                    <label>العنوان:</label>
+                    <input type='text' name='title' required>
+
+                    <label>الرابط:</label>
+                    <input type='url' name='url' required>
 
                     <button type='submit'>حفظ الرابط</button>
                 </form>
@@ -560,25 +627,46 @@ def admin_dashboard(request: Request):
 
                 <h2>📄 رفع PDF</h2>
                 <form method='post' action='/admin/upload' enctype='multipart/form-data'>
+                    <label>المرحلة:</label>
+                    <select name='stage_id' id='stage_select_u' required>
+                        <option value=''>اختر المرحلة</option>
+                        {make_stage_options(stages)}
+                    </select>
+
+                    <label>الفصل:</label>
+                    <select name='term_id' id='term_select_u' required>
+                        <option value=''>اختر الفصل</option>
+                        {make_term_options(terms)}
+                    </select>
+
+                    <label>الصف:</label>
+                    <select name='grade_id' id='grade_select_u' required>
+                        <option value=''>اختر الصف</option>
+                        {make_grade_options(grades)}
+                    </select>
+
                     <label>المادة:</label>
-                    <select name='subject_id' required>
-                        {make_options(subjects)}
+                    <select name='subject_id' id='subject_select_u' required>
+                        <option value=''>اختر المادة</option>
+                        {make_subject_options(subjects)}
                     </select>
 
                     <label>نوع المحتوى:</label>
                     <select name='option_id' required>
-                        {make_options(options)}
+                        <option value=''>اختر نوع المحتوى</option>
+                        {make_simple_options(options)}
                     </select>
 
                     <label>القسم:</label>
                     <select name='child_id' required>
-                        {make_options(children)}
+                        <option value=''>اختر القسم</option>
+                        {make_simple_options(children)}
                     </select>
 
                     <label>القسم الفرعي (اختياري):</label>
                     <select name='subchild_id'>
                         <option value=''>بدون</option>
-                        {make_options(subchildren)}
+                        {make_simple_options(subchildren)}
                     </select>
 
                     <label>ملف PDF:</label>
@@ -595,12 +683,15 @@ def admin_dashboard(request: Request):
                     <thead>
                         <tr>
                             <th>ID</th>
-                            <th>العنوان</th>
-                            <th>الرابط</th>
+                            <th>المرحلة</th>
+                            <th>الفصل</th>
+                            <th>الصف</th>
                             <th>المادة</th>
                             <th>النوع</th>
                             <th>القسم</th>
                             <th>القسم الفرعي</th>
+                            <th>العنوان</th>
+                            <th>الرابط</th>
                             <th>إجراءات</th>
                         </tr>
                     </thead>
@@ -610,6 +701,77 @@ def admin_dashboard(request: Request):
                 </table>
             </div>
         </div>
+
+        <script>
+        // فلترة هرمية للمرحلة/الفصل/الصف/المادة فى فورم الإضافة + الرفع
+        function setupCascade(stageId, termId, gradeId, subjectId) {{
+            const stageSelect = document.getElementById(stageId);
+            const termSelect = document.getElementById(termId);
+            const gradeSelect = document.getElementById(gradeId);
+            const subjectSelect = document.getElementById(subjectId);
+
+            if (!stageSelect || !termSelect || !gradeSelect || !subjectSelect) return;
+
+            function filterTerms() {{
+                const stageVal = stageSelect.value;
+                const termOptions = termSelect.querySelectorAll('option[data-stage]');
+                termOptions.forEach(opt => {{
+                    opt.style.display = (!stageVal || opt.dataset.stage === stageVal) ? '' : 'none';
+                }});
+                if (termSelect.value && termSelect.selectedOptions[0].style.display === 'none') {{
+                    termSelect.value = '';
+                }}
+            }}
+
+            function filterGrades() {{
+                const termVal = termSelect.value;
+                const gradeOptions = gradeSelect.querySelectorAll('option[data-term]');
+                gradeOptions.forEach(opt => {{
+                    opt.style.display = (!termVal || opt.dataset.term === termVal) ? '' : 'none';
+                }});
+                if (gradeSelect.value && gradeSelect.selectedOptions[0].style.display === 'none') {{
+                    gradeSelect.value = '';
+                }}
+            }}
+
+            function filterSubjects() {{
+                const gradeVal = gradeSelect.value;
+                const subjectOptions = subjectSelect.querySelectorAll('option[data-grade]');
+                subjectOptions.forEach(opt => {{
+                    opt.style.display = (!gradeVal || opt.dataset.grade === gradeVal) ? '' : 'none';
+                }});
+                if (subjectSelect.value && subjectSelect.selectedOptions[0].style.display === 'none') {{
+                    subjectSelect.value = '';
+                }}
+            }}
+
+            stageSelect.addEventListener('change', () => {{
+                filterTerms();
+                filterGrades();
+                filterSubjects();
+            }});
+
+            termSelect.addEventListener('change', () => {{
+                filterGrades();
+                filterSubjects();
+            }});
+
+            gradeSelect.addEventListener('change', () => {{
+                filterSubjects();
+            }});
+
+            // أول تحميل
+            filterTerms();
+            filterGrades();
+            filterSubjects();
+        }}
+
+        document.addEventListener('DOMContentLoaded', function() {{
+            setupCascade('stage_select', 'term_select', 'grade_select', 'subject_select');
+            setupCascade('stage_select_u', 'term_select_u', 'grade_select_u', 'subject_select_u');
+        }});
+        </script>
+
     </body>
     </html>
     """
@@ -621,26 +783,32 @@ def admin_dashboard(request: Request):
 @app.post("/admin/add")
 def admin_add(
     request: Request,
-    title: str = Form(...),
-    url: str = Form(...),
+    stage_id: int = Form(...),
+    term_id: int = Form(...),
+    grade_id: int = Form(...),
     subject_id: int = Form(...),
     option_id: int = Form(...),
     child_id: int = Form(...),
     subchild_id: str | None = Form(None),
+    title: str = Form(...),
+    url: str = Form(...),
 ):
     if not _require_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
 
-    # معالجة القيمة الفارغة
     if not subchild_id:
         subchild_id_val = None
     else:
         subchild_id_val = int(subchild_id)
 
     cursor.execute("""
-        INSERT INTO resources (subject_id, option_id, child_id, subchild_id, title, url)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (subject_id, option_id, child_id, subchild_id_val, title, url))
+        INSERT INTO resources (stage_id, term_id, grade_id,
+                               subject_id, option_id, child_id, subchild_id,
+                               title, url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (stage_id, term_id, grade_id,
+          subject_id, option_id, child_id, subchild_id_val,
+          title, url))
 
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
@@ -652,6 +820,9 @@ def admin_add(
 @app.post("/admin/upload")
 async def admin_upload(
     request: Request,
+    stage_id: int = Form(...),
+    term_id: int = Form(...),
+    grade_id: int = Form(...),
     subject_id: int = Form(...),
     option_id: int = Form(...),
     child_id: int = Form(...),
@@ -676,9 +847,13 @@ async def admin_upload(
         subchild_id_val = int(subchild_id)
 
     cursor.execute("""
-        INSERT INTO resources (subject_id, option_id, child_id, subchild_id, title, url)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (subject_id, option_id, child_id, subchild_id_val, file.filename, file_url))
+        INSERT INTO resources (stage_id, term_id, grade_id,
+                               subject_id, option_id, child_id, subchild_id,
+                               title, url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (stage_id, term_id, grade_id,
+          subject_id, option_id, child_id, subchild_id_val,
+          file.filename, file_url))
 
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
@@ -693,22 +868,59 @@ def admin_edit_form(res_id: int, request: Request):
         return RedirectResponse("/admin/login", status_code=303)
 
     cursor.execute("""
-        SELECT id, title, url, subject_id, option_id, child_id, subchild_id
+        SELECT id, title, url,
+               stage_id, term_id, grade_id,
+               subject_id, option_id, child_id, subchild_id
         FROM resources WHERE id = ?
     """, (res_id,))
     row = cursor.fetchone()
     if not row:
         return HTMLResponse("لم يتم العثور على هذا السجل", status_code=404)
 
-    _, title, url, subject_id, option_id, child_id, subchild_id = row
+    (_, title, url,
+     stage_id, term_id, grade_id,
+     subject_id, option_id, child_id, subchild_id) = row
 
-    subjects = _fetch_all("SELECT id, name FROM subjects")
+    stages = _fetch_all("SELECT id, name FROM stages")
+    terms = _fetch_all("SELECT id, name, stage_id FROM terms")
+    grades = _fetch_all("SELECT id, name, term_id FROM grades")
+    subjects = _fetch_all("SELECT id, name, grade_id FROM subjects")
     options = _fetch_all("SELECT id, name FROM subject_options")
-    children = _fetch_all("SELECT id, name FROM option_children")
-    subchildren = _fetch_all("SELECT id, name FROM option_subchildren")
+    children = _fetch_all("SELECT id, name, option_id FROM option_children")
+    subchildren = _fetch_all("SELECT id, name, child_id FROM option_subchildren")
 
-    def make_options(rows, selected_id):
+    def make_stage_options(selected_id):
+        html = "<option value=''>اختر المرحلة</option>"
+        for r in stages:
+            sel = " selected" if r[0] == selected_id else ""
+            html += f"<option value='{r[0]}'{sel}>{r[1]}</option>"
+        return html
+
+    def make_term_options(selected_id):
+        html = "<option value=''>اختر الفصل</option>"
+        for r in terms:
+            sel = " selected" if r[0] == selected_id else ""
+            html += f"<option value='{r[0]}' data-stage='{r[2]}'{sel}>{r[1]}</option>"
+        return html
+
+    def make_grade_options(selected_id):
+        html = "<option value=''>اختر الصف</option>"
+        for r in grades:
+            sel = " selected" if r[0] == selected_id else ""
+            html += f"<option value='{r[0]}' data-term='{r[2]}'{sel}>{r[1]}</option>"
+        return html
+
+    def make_subject_options(selected_id):
+        html = "<option value=''>اختر المادة</option>"
+        for r in subjects:
+            sel = " selected" if r[0] == selected_id else ""
+            html += f"<option value='{r[0]}' data-grade='{r[2]}'{sel}>{r[1]}</option>"
+        return html
+
+    def make_simple_options(rows, selected_id, with_empty=False, empty_text="بدون"):
         html = ""
+        if with_empty:
+            html += f"<option value=''>{empty_text}</option>"
         for r in rows:
             sel = " selected" if r[0] == selected_id else ""
             html += f"<option value='{r[0]}'{sel}>{r[1]}</option>"
@@ -760,37 +972,119 @@ def admin_edit_form(res_id: int, request: Request):
         <div class='box'>
             <h2>📝 تعديل الرابط رقم {res_id}</h2>
             <form method='post' action='/admin/edit/{res_id}'>
+                <label>المرحلة:</label>
+                <select name='stage_id' id='stage_select_e' required>
+                    {make_stage_options(stage_id)}
+                </select>
+
+                <label>الفصل:</label>
+                <select name='term_id' id='term_select_e' required>
+                    {make_term_options(term_id)}
+                </select>
+
+                <label>الصف:</label>
+                <select name='grade_id' id='grade_select_e' required>
+                    {make_grade_options(grade_id)}
+                </select>
+
+                <label>المادة:</label>
+                <select name='subject_id' id='subject_select_e' required>
+                    {make_subject_options(subject_id)}
+                </select>
+
+                <label>نوع المحتوى:</label>
+                <select name='option_id' required>
+                    {make_simple_options(options, option_id)}
+                </select>
+
+                <label>القسم:</label>
+                <select name='child_id' required>
+                    {make_simple_options(children, child_id)}
+                </select>
+
+                <label>القسم الفرعي (اختياري):</label>
+                <select name='subchild_id'>
+                    {make_simple_options(subchildren, subchild_selected, with_empty=True, empty_text="بدون")}
+                </select>
+
                 <label>العنوان:</label>
                 <input type='text' name='title' value="{title}" required>
 
                 <label>الرابط:</label>
                 <input type='url' name='url' value="{url}" required>
 
-                <label>المادة:</label>
-                <select name='subject_id' required>
-                    {make_options(subjects, subject_id)}
-                </select>
-
-                <label>نوع المحتوى:</label>
-                <select name='option_id' required>
-                    {make_options(options, option_id)}
-                </select>
-
-                <label>القسم:</label>
-                <select name='child_id' required>
-                    {make_options(children, child_id)}
-                </select>
-
-                <label>القسم الفرعي (اختياري):</label>
-                <select name='subchild_id'>
-                    <option value=''>بدون</option>
-                    {make_options(subchildren, subchild_selected)}
-                </select>
-
                 <button type='submit'>حفظ التعديلات</button>
                 <a href="/admin"><button type="button" style="background:#555;margin-right:10px;">رجوع للوحة التحكم</button></a>
             </form>
         </div>
+
+        <script>
+        function setupCascade(stageId, termId, gradeId, subjectId) {{
+            const stageSelect = document.getElementById(stageId);
+            const termSelect = document.getElementById(termId);
+            const gradeSelect = document.getElementById(gradeId);
+            const subjectSelect = document.getElementById(subjectId);
+
+            if (!stageSelect || !termSelect || !gradeSelect || !subjectSelect) return;
+
+            function filterTerms() {{
+                const stageVal = stageSelect.value;
+                const termOptions = termSelect.querySelectorAll('option[data-stage]');
+                termOptions.forEach(opt => {{
+                    opt.style.display = (!stageVal || opt.dataset.stage === stageVal) ? '' : 'none';
+                }});
+                if (termSelect.value && termSelect.selectedOptions[0].style.display === 'none') {{
+                    termSelect.value = '';
+                }}
+            }}
+
+            function filterGrades() {{
+                const termVal = termSelect.value;
+                const gradeOptions = gradeSelect.querySelectorAll('option[data-term]');
+                gradeOptions.forEach(opt => {{
+                    opt.style.display = (!termVal || opt.dataset.term === termVal) ? '' : 'none';
+                }});
+                if (gradeSelect.value && gradeSelect.selectedOptions[0].style.display === 'none') {{
+                    gradeSelect.value = '';
+                }}
+            }}
+
+            function filterSubjects() {{
+                const gradeVal = gradeSelect.value;
+                const subjectOptions = subjectSelect.querySelectorAll('option[data-grade]');
+                subjectOptions.forEach(opt => {{
+                    opt.style.display = (!gradeVal || opt.dataset.grade === gradeVal) ? '' : 'none';
+                }});
+                if (subjectSelect.value && subjectSelect.selectedOptions[0].style.display === 'none') {{
+                    subjectSelect.value = '';
+                }}
+            }}
+
+            stageSelect.addEventListener('change', () => {{
+                filterTerms();
+                filterGrades();
+                filterSubjects();
+            }});
+
+            termSelect.addEventListener('change', () => {{
+                filterGrades();
+                filterSubjects();
+            }});
+
+            gradeSelect.addEventListener('change', () => {{
+                filterSubjects();
+            }});
+
+            filterTerms();
+            filterGrades();
+            filterSubjects();
+        }}
+
+        document.addEventListener('DOMContentLoaded', function() {{
+            setupCascade('stage_select_e', 'term_select_e', 'grade_select_e', 'subject_select_e');
+        }});
+        </script>
+
     </body>
     </html>
     """
@@ -800,12 +1094,15 @@ def admin_edit_form(res_id: int, request: Request):
 def admin_edit_save(
     res_id: int,
     request: Request,
-    title: str = Form(...),
-    url: str = Form(...),
+    stage_id: int = Form(...),
+    term_id: int = Form(...),
+    grade_id: int = Form(...),
     subject_id: int = Form(...),
     option_id: int = Form(...),
     child_id: int = Form(...),
     subchild_id: str | None = Form(None),
+    title: str = Form(...),
+    url: str = Form(...),
 ):
     if not _require_admin(request):
         return RedirectResponse("/admin/login", status_code=303)
@@ -817,9 +1114,13 @@ def admin_edit_save(
 
     cursor.execute("""
         UPDATE resources
-        SET subject_id = ?, option_id = ?, child_id = ?, subchild_id = ?, title = ?, url = ?
+        SET stage_id = ?, term_id = ?, grade_id = ?,
+            subject_id = ?, option_id = ?, child_id = ?, subchild_id = ?,
+            title = ?, url = ?
         WHERE id = ?
-    """, (subject_id, option_id, child_id, subchild_id_val, title, url, res_id))
+    """, (stage_id, term_id, grade_id,
+          subject_id, option_id, child_id, subchild_id_val,
+          title, url, res_id))
 
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
