@@ -41,10 +41,11 @@ cursor = conn.cursor()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("BOT")
 
+
 # ----------------- Migration helper -----------------
 def ensure_resources_columns():
     """
-    تتأكد إن جدول resources فيه الأعمدة الجديدة:
+    تتأكد إن جدول resources فيه الأعمدة:
     stage_id, term_id, grade_id
     لو مش موجودة تضيفها تلقائيًا.
     """
@@ -59,10 +60,11 @@ def ensure_resources_columns():
 
     for name, coltype in needed.items():
         if name not in cols:
-            print(f"⚙️ Adding missing column {name} ...")
+            print(f"⚙️ Adding missing column {name} to resources table")
             cursor.execute(f"ALTER TABLE resources ADD COLUMN {name} {coltype}")
 
     conn.commit()
+
 
 ensure_resources_columns()
 
@@ -85,6 +87,7 @@ def make_keyboard(options):
         rows.append(row)
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
 # ============================================================
 #   START COMMAND
 # ============================================================
@@ -125,12 +128,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
 
-        if state["step"] == "subchild":
+        if state.get("step") == "subchild":
             state["step"] = "suboption"
             cursor.execute("SELECT name FROM option_children WHERE option_id=?", (state["option_id"],))
             return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "suboption":
+        if state.get("step") == "suboption":
             state["step"] = "option"
             cursor.execute("""
                 SELECT subject_options.name
@@ -140,22 +143,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """, (state["subject_id"],))
             return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "option":
+        if state.get("step") == "option":
             state["step"] = "subject"
             cursor.execute("SELECT name FROM subjects WHERE grade_id=?", (state["grade_id"],))
             return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "subject":
+        if state.get("step") == "subject":
             state["step"] = "grade"
             cursor.execute("SELECT name FROM grades WHERE term_id=?", (state["term_id"],))
             return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "grade":
+        if state.get("step") == "grade":
             state["step"] = "term"
             cursor.execute("SELECT name FROM terms WHERE stage_id=?", (state["stage_id"],))
             return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall()))
 
-        if state["step"] == "term":
+        if state.get("step") == "term":
             state["step"] = "stage"
             cursor.execute("SELECT name FROM stages ORDER BY id")
             return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall()))
@@ -210,6 +213,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE subject_option_map.subject_id=?
         """, (state["subject_id"],))
         return await update.message.reply_text("اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall()))
+
     # ---------------- OPTION ----------------
     if state["step"] == "option":
         cursor.execute("SELECT id FROM subject_options WHERE name=?", (text,))
@@ -293,6 +297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg = "\n".join(f"▪️ <a href='{u}'>{t}</a>" for t, u in resources)
         return await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+
 # ============================================================
 #   FASTAPI — TELEGRAM WEBHOOK
 # ============================================================
@@ -307,7 +312,6 @@ async def lifespan(app: FastAPI):
 
     app.state.tg_application = tg_app
 
-    # تعيين الوِبهوك
     await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
 
     async with tg_app:
@@ -326,6 +330,7 @@ async def telegram_webhook(request: Request):
 @app.get("/")
 def root():
     return {"status": "running"}
+
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -663,12 +668,12 @@ def admin_form():
     </body>
     </html>
     """
+
 # ============================================================
-#   ADD RESOURCE (POST)
+#   ADD LINK
 # ============================================================
 @app.post("/admin/add")
-async def add_resource(
-    request: Request,
+def admin_add(
     password: str = Form(...),
     stage_id: int = Form(...),
     term_id: int = Form(...),
@@ -676,51 +681,41 @@ async def add_resource(
     subject_id: int = Form(...),
     option_id: int = Form(...),
     child_id: int = Form(...),
-    subchild_id: str = Form(""),
+    subchild_id: int | None = Form(None),
     title: str = Form(...),
-    url: str = Form(...)
+    url: str = Form(...),
 ):
-
     if password != ADMIN_PASSWORD:
-        return HTMLResponse("<h2>❌ كلمة المرور غير صحيحة</h2>")
+        return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
 
-    try:
-        cursor.execute("""
-            INSERT INTO resources (stage_id, term_id, grade_id,
-                                   subject_id, option_id, child_id, subchild_id,
-                                   title, url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
+    cursor.execute("""
+        INSERT INTO resources (
             stage_id, term_id, grade_id,
-            subject_id, option_id, child_id,
-            int(subchild_id) if subchild_id else None,
+            subject_id, option_id, child_id, subchild_id,
             title, url
-        ))
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (stage_id, term_id, grade_id,
+          subject_id, option_id, child_id, subchild_id,
+          title, url))
 
-        conn.commit()
-        return HTMLResponse("<h2>✅ تم إضافة الرابط بنجاح</h2><a href='/admin'>رجوع</a>")
-
-    except Exception as e:
-        return HTMLResponse(f"<h2>❌ خطأ: {e}</h2>")
-
-
-# ============================================================
-#   FILE SERVING FOR PDF UPLOADS
-# ============================================================
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-@app.get("/file/{filename}")
-def serve_file(filename: str):
-    return FileResponse(f"{UPLOAD_DIR}/{filename}")
-
+    conn.commit()
+    return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   UPLOAD PDF (POST)
+#   DELETE LINK
+# ============================================================
+@app.post("/admin/delete/{res_id}")
+def admin_delete(res_id: int):
+    cursor.execute("DELETE FROM resources WHERE id=?", (res_id,))
+    conn.commit()
+    return RedirectResponse("/admin", status_code=303)
+
+# ============================================================
+#   PDF UPLOAD
 # ============================================================
 @app.post("/admin/upload")
-async def upload_pdf(
-    request: Request,
+async def admin_upload(
     password: str = Form(...),
     stage_id: int = Form(...),
     term_id: int = Form(...),
@@ -728,68 +723,42 @@ async def upload_pdf(
     subject_id: int = Form(...),
     option_id: int = Form(...),
     child_id: int = Form(...),
-    subchild_id: str = Form(""),
-    file: UploadFile = File(...)
+    subchild_id: int | None = Form(None),
+    file: UploadFile = File(...),
 ):
-
     if password != ADMIN_PASSWORD:
-        return HTMLResponse("<h2>❌ كلمة المرور غير صحيحة</h2>")
+        return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
 
-    # حفظ الملف
-    filename = f"{int(time.time())}_{file.filename}"
-    filepath = f"{UPLOAD_DIR}/{filename}"
+    upload_dir = os.path.join(BASE_DIR, "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
 
-    with open(filepath, "wb") as f:
+    file_path = os.path.join(upload_dir, file.filename)
+    with open(file_path, "wb") as f:
         f.write(await file.read())
 
-    file_url = f"https://{APP_URL}/file/{filename}"  # رابط التحميل
+    file_url = f"{APP_URL}/files/{file.filename}"
 
-    # حفظه كـ resource
     cursor.execute("""
-        INSERT INTO resources (stage_id, term_id, grade_id,
-                               subject_id, option_id, child_id, subchild_id,
-                               title, url)
+        INSERT INTO resources (
+            stage_id, term_id, grade_id,
+            subject_id, option_id, child_id, subchild_id,
+            title, url
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        stage_id, term_id, grade_id,
-        subject_id, option_id, child_id,
-        int(subchild_id) if subchild_id else None,
-        file.filename,
-        file_url
-    ))
+    """, (stage_id, term_id, grade_id,
+          subject_id, option_id, child_id, subchild_id,
+          file.filename, file_url))
 
     conn.commit()
-
-    return HTMLResponse("<h2>✅ تم رفع الملف بنجاح</h2><a href='/admin'>رجوع</a>")
-
+    return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   DELETE RESOURCE
+#   SERVE PDF FILES
 # ============================================================
-@app.post("/admin/delete/{rid}")
-async def delete_resource(rid: int):
+@app.get("/files/{filename}")
+async def serve_file(filename: str):
+    file_path = os.path.join(BASE_DIR, "uploads", filename)
+    if not os.path.exists(file_path):
+        return Response("File Not Found", status_code=404)
 
-    cursor.execute("DELETE FROM resources WHERE id = ?", (rid,))
-    conn.commit()
-
-    return HTMLResponse("<h2>🗑️ تم حذف الرابط</h2><a href='/admin'>رجوع</a>")
-
-
-# ============================================================
-#   START BOT
-# ============================================================
-async def start_bot():
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-
-
-@app.on_event("startup")
-async def on_startup():
-    asyncio.create_task(start_bot())
-
-
-@app.get("/")
-def home():
-    return {"status": "running"}
-
+    return Response(open(file_path, "rb").read(), media_type="application/pdf")
