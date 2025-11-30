@@ -341,6 +341,9 @@ def _fetch_all(query, params=()):
 # ============================================================
 #   ADMIN PANEL HTML (Bootstrap + Dynamic Dropdowns)
 # ============================================================
+# ============================================================
+#   ADMIN PANEL HTML (Bootstrap + Dynamic Dropdowns)
+# ============================================================
 @app.get("/admin", response_class=HTMLResponse)
 def admin_form():
 
@@ -372,42 +375,52 @@ def admin_form():
     child_map = {c[0]: c[1] for c in children}
     subchild_map = {sc[0]: sc[1] for sc in subchildren}
 
-    # تجهيز بيانات لجافاسكربت (JSON)
-    stages_js = json.dumps([{"id": s[0], "name": s[1]} for s in stages], ensure_ascii=False)
-    terms_js = json.dumps([{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms], ensure_ascii=False)
-    grades_js = json.dumps([{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades], ensure_ascii=False)
-    subjects_js = json.dumps([{"id": s[0], "name": s[1], "grade_id": s[2]} for s in subjects], ensure_ascii=False)
-    options_js = json.dumps([{"id": o[0], "name": o[1]} for o in options], ensure_ascii=False)
-    children_js = json.dumps([{"id": c[0], "name": c[1], "option_id": c[2]} for c in children], ensure_ascii=False)
+    # تجهيز بيانات لجافاسكربت
+    stages_js      = json.dumps([{"id": s[0], "name": s[1]} for s in stages], ensure_ascii=False)
+    terms_js       = json.dumps([{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms], ensure_ascii=False)
+    grades_js      = json.dumps([{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades], ensure_ascii=False)
+    subjects_js    = json.dumps([{"id": s[0], "name": s[1], "grade_id": s[2]} for s in subjects], ensure_ascii=False)
+    options_js     = json.dumps([{"id": o[0], "name": o[1]} for o in options], ensure_ascii=False)
+    children_js    = json.dumps([{"id": c[0], "name": c[1], "option_id": c[2]} for c in children], ensure_ascii=False)
     subchildren_js = json.dumps([{"id": sc[0], "name": sc[1], "child_id": sc[2]} for sc in subchildren], ensure_ascii=False)
-    subj_opt_js = json.dumps([{"subject_id": so[0], "option_id": so[1]} for so in subj_opt_map], ensure_ascii=False)
+    subj_opt_js    = json.dumps([{"subject_id": so[0], "option_id": so[1]} for so in subj_opt_map], ensure_ascii=False)
 
-    # بناء جدول الروابط HTML
+    # بناء جدول الروابط
     rows_html = ""
     for r in resources:
         rid, title, url, st_id, term_id, grade_id, subj_id, opt_id, child_id, subc_id = r
+
         rows_html += (
             "<tr>"
-            f"<td>{rid}</td>"
-            f"<td>{stage_map.get(st_id, '')}</td>"
-            f"<td>{term_map.get(term_id, '')}</td>"
-            f"<td>{grade_map.get(grade_id, '')}</td>"
-            f"<td>{subj_map.get(subj_id, '')}</td>"
-            f"<td>{opt_map.get(opt_id, '')}</td>"
-            f"<td>{child_map.get(child_id, '')}</td>"
-            f"<td>{subchild_map.get(subc_id, '') if subc_id else ''}</td>"
-            f"<td>{title}</td>"
-            f"<td><a href=\"{url}\" target=\"_blank\">فتح</a></td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td>{}</td>"
+            "<td><a href='{}' target='_blank'>فتح</a></td>"
             "<td>"
-            f"<form method=\"post\" action=\"/admin/delete/{rid}\" "
-            "onsubmit=\"return confirm('هل تريد الحذف؟');\">"
-            "<button class=\"btn btn-sm btn-danger\">حذف</button>"
-            "</form>"
+                "<form method='post' action='/admin/delete/{}' onsubmit=\"return confirm('هل تريد الحذف؟');\">"
+                "<button class='btn btn-sm btn-danger'>حذف</button>"
+                "</form>"
             "</td>"
             "</tr>"
+        ).format(
+            rid,
+            stage_map.get(st_id, ""),
+            term_map.get(term_id, ""),
+            grade_map.get(grade_id, ""),
+            subj_map.get(subj_id, ""),
+            opt_map.get(opt_id, ""),
+            child_map.get(child_id, ""),
+            subchild_map.get(subc_id, "") if subc_id else "",
+            title,
+            url,
+            rid
         )
-
-    # HTML كامل كنص عادي (مش f-string)
     html = """
     <html lang="ar" dir="rtl">
     <head>
@@ -571,7 +584,7 @@ def admin_form():
                             </tr>
                         </thead>
                         <tbody>
-                            __ROWS_HTML__
+                            """ + rows_html + """
                         </tbody>
                     </table>
                 </div>
@@ -580,16 +593,16 @@ def admin_form():
 
         <!-- JavaScript controlling dropdowns -->
         <script>
-            const stages      = __STAGES_JS__;
-            const terms       = __TERMS_JS__;
-            const grades      = __GRADES_JS__;
-            const subjects    = __SUBJECTS_JS__;
-            const options     = __OPTIONS_JS__;
-            const children    = __CHILDREN_JS__;
-            const subchildren = __SUBCHILDREN_JS__;
-            const subjOptMap  = __SUBJOPT_JS__;
+            const stages      = """ + stages_js + """;
+            const terms       = """ + terms_js + """;
+            const grades      = """ + grades_js + """;
+            const subjects    = """ + subjects_js + """;
+            const options     = """ + options_js + """;
+            const children    = """ + children_js + """;
+            const subchildren = """ + subchildren_js + """;
+            const subjOptMap  = """ + subj_opt_js + """;
 
-            function fill(sel, items, defaultText) {
+            function fill(sel, items, defaultText){
                 sel.innerHTML = "";
                 const o = document.createElement("option");
                 o.value = "";
@@ -600,91 +613,79 @@ def admin_form():
                     const opt = document.createElement("option");
                     opt.value = i.id;
                     opt.textContent = i.name;
-                    opt.dir = "rtl";
                     sel.appendChild(opt);
                 });
             }
 
-            function setup(prefix) {
-                const s  = document.getElementById(prefix + "stage");
-                const t  = document.getElementById(prefix + "term");
-                const g  = document.getElementById(prefix + "grade");
-                const sb = document.getElementById(prefix + "subject");
-                const op = document.getElementById(prefix + "option");
-                const ch = document.getElementById(prefix + "child");
-                const sc = document.getElementById(prefix + "subchild");
-
-                if (!s) return;
+            function setup(prefix){
+                const s = document.getElementById(prefix+"stage");
+                const t = document.getElementById(prefix+"term");
+                const g = document.getElementById(prefix+"grade");
+                const sb = document.getElementById(prefix+"subject");
+                const op = document.getElementById(prefix+"option");
+                const ch = document.getElementById(prefix+"child");
+                const sc = document.getElementById(prefix+"subchild");
 
                 fill(s, stages, "اختر المرحلة");
 
-                s.onchange = () => {
+                s.onchange = function(){
                     const id = parseInt(s.value || "0");
-                    fill(t, terms.filter(x => x.stage_id === id), "اختر الفصل");
+                    fill(t, terms.filter(x => x.stage_id===id), "اختر الفصل");
                     fill(g, [], "اختر الصف");
-                    fill(sb, [], "اختر المادة");
-                    fill(op, [], "اختر النوع");
-                    fill(ch, [], "اختر القسم");
+                    fill(sb,[], "اختر المادة");
+                    fill(op,[], "اختر النوع");
+                    fill(ch,[], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                t.onchange = () => {
+                t.onchange = function(){
                     const id = parseInt(t.value || "0");
-                    fill(g, grades.filter(x => x.term_id === id), "اختر الصف");
-                    fill(sb, [], "اختر المادة");
-                    fill(op, [], "اختر النوع");
-                    fill(ch, [], "اختر القسم");
+                    fill(g, grades.filter(x=>x.term_id===id), "اختر الصف");
+                    fill(sb,[], "اختر المادة");
+                    fill(op,[], "اختر النوع");
+                    fill(ch,[], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                g.onchange = () => {
+                g.onchange = function(){
                     const id = parseInt(g.value || "0");
-                    fill(sb, subjects.filter(x => x.grade_id === id), "اختر المادة");
-                    fill(op, [], "اختر النوع");
-                    fill(ch, [], "اختر القسم");
+                    fill(sb,subjects.filter(x=>x.grade_id===id),"اختر المادة");
+                    fill(op,[], "اختر النوع");
+                    fill(ch,[], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                sb.onchange = () => {
+                sb.onchange = function(){
                     const id = parseInt(sb.value || "0");
-                    const allowed = subjOptMap.filter(x => x.subject_id === id).map(x => x.option_id);
-                    fill(op, options.filter(x => allowed.includes(x.id)), "اختر النوع");
-                    fill(ch, [], "اختر القسم");
+                    const allowed = subjOptMap.filter(x=>x.subject_id===id).map(x=>x.option_id);
+                    fill(op,options.filter(x=>allowed.includes(x.id)),"اختر النوع");
+                    fill(ch,[], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                op.onchange = () => {
+                op.onchange = function(){
                     const id = parseInt(op.value || "0");
-                    fill(ch, children.filter(x => x.option_id === id), "اختر القسم");
+                    fill(ch,children.filter(x=>x.option_id===id),"اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                ch.onchange = () => {
-                    const id = parseInt(ch.value || "0");
-                    fill(sc, subchildren.filter(x => x.child_id === id), "لا يوجد");
+                ch.onchange = function(){
+                    const id = parseInt(ch.value ||"0");
+                    fill(sc, subchildren.filter(x=>x.child_id===id),"لا يوجد");
                 };
             }
 
             setup("");
             setup("_up");
+
         </script>
 
     </body>
     </html>
     """
 
-    # استبدال الـ placeholders بالقيم الحقيقية
-    html = html.replace("__ROWS_HTML__", rows_html)
-    html = html.replace("__STAGES_JS__", stages_js)
-    html = html.replace("__TERMS_JS__", terms_js)
-    html = html.replace("__GRADES_JS__", grades_js)
-    html = html.replace("__SUBJECTS_JS__", subjects_js)
-    html = html.replace("__OPTIONS_JS__", options_js)
-    html = html.replace("__CHILDREN_JS__", children_js)
-    html = html.replace("__SUBCHILDREN_JS__", subchildren_js)
-    html = html.replace("__SUBJOPT_JS__", subj_opt_js)
-
     return HTMLResponse(html)
+
 # ============================================================
 #   ADD LINK
 # ============================================================
@@ -711,12 +712,16 @@ def admin_add(
             title, url
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (stage_id, term_id, grade_id,
-          subject_id, option_id, child_id, subchild_id,
-          title, url))
+    """, (
+        stage_id, term_id, grade_id,
+        subject_id, option_id, child_id, subchild_id,
+        title, url
+    ))
 
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
+
+
 
 # ============================================================
 #   DELETE LINK
@@ -726,6 +731,8 @@ def admin_delete(res_id: int):
     cursor.execute("DELETE FROM resources WHERE id=?", (res_id,))
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
+
+
 
 # ============================================================
 #   PDF UPLOAD
@@ -761,12 +768,16 @@ async def admin_upload(
             title, url
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (stage_id, term_id, grade_id,
-          subject_id, option_id, child_id, subchild_id,
-          file.filename, file_url))
+    """, (
+        stage_id, term_id, grade_id,
+        subject_id, option_id, child_id, subchild_id,
+        file.filename, file_url
+    ))
 
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
+
+
 
 # ============================================================
 #   SERVE PDF FILES
@@ -777,4 +788,7 @@ async def serve_file(filename: str):
     if not os.path.exists(file_path):
         return Response("File Not Found", status_code=404)
 
-    return Response(open(file_path, "rb").read(), media_type="application/pdf")
+    return Response(
+        open(file_path, "rb").read(),
+        media_type="application/pdf"
+    )
