@@ -372,7 +372,7 @@ def admin_form():
     child_map = {c[0]: c[1] for c in children}
     subchild_map = {sc[0]: sc[1] for sc in subchildren}
 
-    # تجهيز بيانات لجافاسكربت
+    # تجهيز بيانات لجافاسكربت (JSON)
     stages_js = json.dumps([{"id": s[0], "name": s[1]} for s in stages], ensure_ascii=False)
     terms_js = json.dumps([{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms], ensure_ascii=False)
     grades_js = json.dumps([{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades], ensure_ascii=False)
@@ -382,47 +382,49 @@ def admin_form():
     subchildren_js = json.dumps([{"id": sc[0], "name": sc[1], "child_id": sc[2]} for sc in subchildren], ensure_ascii=False)
     subj_opt_js = json.dumps([{"subject_id": so[0], "option_id": so[1]} for so in subj_opt_map], ensure_ascii=False)
 
-    # بناء جدول الروابط
+    # بناء جدول الروابط HTML
     rows_html = ""
     for r in resources:
         rid, title, url, st_id, term_id, grade_id, subj_id, opt_id, child_id, subc_id = r
-        rows_html += f"""
-        <tr>
-            <td>{rid}</td>
-            <td>{stage_map.get(st_id, "")}</td>
-            <td>{term_map.get(term_id, "")}</td>
-            <td>{grade_map.get(grade_id, "")}</td>
-            <td>{subj_map.get(subj_id, "")}</td>
-            <td>{opt_map.get(opt_id, "")}</td>
-            <td>{child_map.get(child_id, "")}</td>
-            <td>{subchild_map.get(subc_id, "") if subc_id else ""}</td>
-            <td>{title}</td>
-            <td><a href="{url}" target="_blank">فتح</a></td>
-            <td>
-                <form method="post" action="/admin/delete/{rid}" onsubmit="return confirm('هل تريد الحذف؟');">
-                    <button class="btn btn-sm btn-danger">حذف</button>
-                </form>
-            </td>
-        </tr>
-        """
+        rows_html += (
+            "<tr>"
+            f"<td>{rid}</td>"
+            f"<td>{stage_map.get(st_id, '')}</td>"
+            f"<td>{term_map.get(term_id, '')}</td>"
+            f"<td>{grade_map.get(grade_id, '')}</td>"
+            f"<td>{subj_map.get(subj_id, '')}</td>"
+            f"<td>{opt_map.get(opt_id, '')}</td>"
+            f"<td>{child_map.get(child_id, '')}</td>"
+            f"<td>{subchild_map.get(subc_id, '') if subc_id else ''}</td>"
+            f"<td>{title}</td>"
+            f"<td><a href=\"{url}\" target=\"_blank\">فتح</a></td>"
+            "<td>"
+            f"<form method=\"post\" action=\"/admin/delete/{rid}\" "
+            "onsubmit=\"return confirm('هل تريد الحذف؟');\">"
+            "<button class=\"btn btn-sm btn-danger\">حذف</button>"
+            "</form>"
+            "</td>"
+            "</tr>"
+        )
 
-    return f"""
+    # HTML كامل كنص عادي (مش f-string)
+    html = """
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="utf-8">
         <title>لوحة تحكم نيو أكاديمي</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
         <style>
-            body {{
+            body {
                 background: #f0f3f7;
-            }}
-            .card {{
+            }
+            .card {
                 border-radius: 14px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            }}
-            .form-label {{
+            }
+            .form-label {
                 font-weight: 600;
-            }}
+            }
         </style>
     </head>
 
@@ -569,7 +571,7 @@ def admin_form():
                             </tr>
                         </thead>
                         <tbody>
-                            {rows_html}
+                            __ROWS_HTML__
                         </tbody>
                     </table>
                 </div>
@@ -578,16 +580,16 @@ def admin_form():
 
         <!-- JavaScript controlling dropdowns -->
         <script>
-            const stages      = {stages_js};
-            const terms       = {terms_js};
-            const grades      = {grades_js};
-            const subjects    = {subjects_js};
-            const options     = {options_js};
-            const children    = {children_js};
-            const subchildren = {subchildren_js};
-            const subjOptMap  = {subj_opt_js};
+            const stages      = __STAGES_JS__;
+            const terms       = __TERMS_JS__;
+            const grades      = __GRADES_JS__;
+            const subjects    = __SUBJECTS_JS__;
+            const options     = __OPTIONS_JS__;
+            const children    = __CHILDREN_JS__;
+            const subchildren = __SUBCHILDREN_JS__;
+            const subjOptMap  = __SUBJOPT_JS__;
 
-            function fill(sel, items, defaultText){
+            function fill(sel, items, defaultText) {
                 sel.innerHTML = "";
                 const o = document.createElement("option");
                 o.value = "";
@@ -598,77 +600,91 @@ def admin_form():
                     const opt = document.createElement("option");
                     opt.value = i.id;
                     opt.textContent = i.name;
+                    opt.dir = "rtl";
                     sel.appendChild(opt);
                 });
             }
 
-            function setup(prefix){
-                const s = document.getElementById(prefix+"stage");
-                const t = document.getElementById(prefix+"term");
-                const g = document.getElementById(prefix+"grade");
-                const sb = document.getElementById(prefix+"subject");
-                const op = document.getElementById(prefix+"option");
-                const ch = document.getElementById(prefix+"child");
-                const sc = document.getElementById(prefix+"subchild");
+            function setup(prefix) {
+                const s  = document.getElementById(prefix + "stage");
+                const t  = document.getElementById(prefix + "term");
+                const g  = document.getElementById(prefix + "grade");
+                const sb = document.getElementById(prefix + "subject");
+                const op = document.getElementById(prefix + "option");
+                const ch = document.getElementById(prefix + "child");
+                const sc = document.getElementById(prefix + "subchild");
+
+                if (!s) return;
 
                 fill(s, stages, "اختر المرحلة");
 
-                s.onchange = ()=>{
+                s.onchange = () => {
                     const id = parseInt(s.value || "0");
-                    fill(t, terms.filter(x => x.stage_id===id), "اختر الفصل");
+                    fill(t, terms.filter(x => x.stage_id === id), "اختر الفصل");
                     fill(g, [], "اختر الصف");
-                    fill(sb,[], "اختر المادة");
-                    fill(op,[], "اختر النوع");
-                    fill(ch,[], "اختر القسم");
+                    fill(sb, [], "اختر المادة");
+                    fill(op, [], "اختر النوع");
+                    fill(ch, [], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                t.onchange = ()=>{
+                t.onchange = () => {
                     const id = parseInt(t.value || "0");
-                    fill(g, grades.filter(x=>x.term_id===id), "اختر الصف");
-                    fill(sb,[], "اختر المادة");
-                    fill(op,[], "اختر النوع");
-                    fill(ch,[], "اختر القسم");
+                    fill(g, grades.filter(x => x.term_id === id), "اختر الصف");
+                    fill(sb, [], "اختر المادة");
+                    fill(op, [], "اختر النوع");
+                    fill(ch, [], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                g.onchange = ()=>{
+                g.onchange = () => {
                     const id = parseInt(g.value || "0");
-                    fill(sb,subjects.filter(x=>x.grade_id===id),"اختر المادة");
-                    fill(op,[], "اختر النوع");
-                    fill(ch,[], "اختر القسم");
+                    fill(sb, subjects.filter(x => x.grade_id === id), "اختر المادة");
+                    fill(op, [], "اختر النوع");
+                    fill(ch, [], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                sb.onchange = ()=>{
+                sb.onchange = () => {
                     const id = parseInt(sb.value || "0");
-                    const allowed = subjOptMap.filter(x=>x.subject_id===id).map(x=>x.option_id);
-                    fill(op,options.filter(x=>allowed.includes(x.id)),"اختر النوع");
-                    fill(ch,[], "اختر القسم");
+                    const allowed = subjOptMap.filter(x => x.subject_id === id).map(x => x.option_id);
+                    fill(op, options.filter(x => allowed.includes(x.id)), "اختر النوع");
+                    fill(ch, [], "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                op.onchange = ()=>{
+                op.onchange = () => {
                     const id = parseInt(op.value || "0");
-                    fill(ch,children.filter(x=>x.option_id===id),"اختر القسم");
+                    fill(ch, children.filter(x => x.option_id === id), "اختر القسم");
                     sc.innerHTML = "<option value=''>لا يوجد</option>";
                 };
 
-                ch.onchange = ()=>{
-                    const id = parseInt(ch.value ||"0");
-                    fill(sc, subchildren.filter(x=>x.child_id===id),"لا يوجد");
+                ch.onchange = () => {
+                    const id = parseInt(ch.value || "0");
+                    fill(sc, subchildren.filter(x => x.child_id === id), "لا يوجد");
                 };
             }
 
             setup("");
             setup("_up");
-
         </script>
 
     </body>
     </html>
     """
 
+    # استبدال الـ placeholders بالقيم الحقيقية
+    html = html.replace("__ROWS_HTML__", rows_html)
+    html = html.replace("__STAGES_JS__", stages_js)
+    html = html.replace("__TERMS_JS__", terms_js)
+    html = html.replace("__GRADES_JS__", grades_js)
+    html = html.replace("__SUBJECTS_JS__", subjects_js)
+    html = html.replace("__OPTIONS_JS__", options_js)
+    html = html.replace("__CHILDREN_JS__", children_js)
+    html = html.replace("__SUBCHILDREN_JS__", subchildren_js)
+    html = html.replace("__SUBJOPT_JS__", subj_opt_js)
+
+    return HTMLResponse(html)
 # ============================================================
 #   ADD LINK
 # ============================================================
