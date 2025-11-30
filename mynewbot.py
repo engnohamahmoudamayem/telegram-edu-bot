@@ -303,3 +303,7 @@ async def telegram_webhook(request: Request):
 @app.get("/")
 def root():
     return {"status": "running"}
+@app.get("/debug-db")
+def debug_db():
+    cursor.execute("PRAGMA table_info(resources)")
+    return {"columns": cursor.fetchall()}
