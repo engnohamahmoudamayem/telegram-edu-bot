@@ -645,8 +645,6 @@ def admin_form():
     </body>
     </html>
     """
-
-
     html = (
         html_template
         .replace("__ROWS__", rows_html)
