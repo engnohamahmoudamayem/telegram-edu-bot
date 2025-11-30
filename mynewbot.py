@@ -344,7 +344,6 @@ def _fetch_all(query, params=()):
 @app.get("/admin", response_class=HTMLResponse)
 def admin_form():
 
-    # جلب البيانات الأساسية
     stages = _fetch_all("SELECT id, name FROM stages ORDER BY id")
     terms = _fetch_all("SELECT id, name, stage_id FROM terms ORDER BY id")
     grades = _fetch_all("SELECT id, name, term_id FROM grades ORDER BY id")
@@ -363,7 +362,6 @@ def admin_form():
         LIMIT 200
     """)
 
-    # الخرائط
     stage_map = {s[0]: s[1] for s in stages}
     term_map = {t[0]: t[1] for t in terms}
     grade_map = {g[0]: g[1] for g in grades}
@@ -372,36 +370,43 @@ def admin_form():
     child_map = {c[0]: c[1] for c in children}
     subchild_map = {sc[0]: sc[1] for sc in subchildren}
 
-    # بيانات للجافاسكربت
-    stages_js      = json.dumps([{"id": s[0], "name": s[1]} for s in stages], ensure_ascii=False)
-    terms_js       = json.dumps([{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms], ensure_ascii=False)
-    grades_js      = json.dumps([{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades], ensure_ascii=False)
-    subjects_js    = json.dumps([{"id": s[0], "name": s[1], "grade_id": s[2]} for s in subjects], ensure_ascii=False)
-    options_js     = json.dumps([{"id": o[0], "name": o[1]} for o in options], ensure_ascii=False)
-    children_js    = json.dumps([{"id": c[0], "name": c[1], "option_id": c[2]} for c in children], ensure_ascii=False)
-    subchildren_js = json.dumps([{"id": sc[0], "name": sc[1], "child_id": sc[2]} for sc in subchildren], ensure_ascii=False)
-    subj_opt_js    = json.dumps([{"subject_id": so[0], "option_id": so[1]} for so in subj_opt_map], ensure_ascii=False)
+    stages_js      = json.dumps(stages, ensure_ascii=False)
+    terms_js       = json.dumps(terms, ensure_ascii=False)
+    grades_js      = json.dumps(grades, ensure_ascii=False)
+    subjects_js    = json.dumps(subjects, ensure_ascii=False)
+    options_js     = json.dumps(options, ensure_ascii=False)
+    children_js    = json.dumps(children, ensure_ascii=False)
+    subchildren_js = json.dumps(subchildren, ensure_ascii=False)
+    subj_opt_js    = json.dumps(subj_opt_map, ensure_ascii=False)
 
-    # جدول الروابط
     rows_html = ""
     for r in resources:
         rid, title, url, st_id, term_id, grade_id, subj_id, opt_id, child_id, subc_id = r
 
-        rows_html += (
-            "<tr>"
-            f"<td>{rid}</td>"
-            f"<td>{stage_map.get(st_id,'')}</td>"
-            f"<td>{term_map.get(term_id,'')}</td>"
-            f"<td>{grade_map.get(grade_id,'')}</td>"
-            f"<td>{subj_map.get(subj_id,'')}</td>"
-            f"<td>{opt_map.get(opt_id,'')}</td>"
-            f"<td>{child_map.get(child_id,'')}</td>"
-            f"<td>{subchild_map.get(subc_id,'') if subc_id else ''}</td>"
-            f"<td>{title}</td>"
-            f"<td><a href='{url}' target='_blank'>فتح</a></td>"
-            f"<td><form method='post' action='/admin/delete/{rid}' onsubmit=\"return confirm('هل تريد الحذف؟');\"><button class='btn btn-sm btn-danger'>حذف</button></form></td>"
-            "</tr>"
-        )
+        rows_html += f"""
+        <tr>
+            <td>{rid}</td>
+            <td>{stage_map.get(st_id, '')}</td>
+            <td>{term_map.get(term_id, '')}</td>
+            <td>{grade_map.get(grade_id, '')}</td>
+            <td>{subj_map.get(subj_id, '')}</td>
+            <td>{opt_map.get(opt_id, '')}</td>
+            <td>{child_map.get(child_id, '')}</td>
+            <td>{subchild_map.get(subc_id, '') if subc_id else ''}</td>
+            <td>{title}</td>
+            <td><a href='{url}' target='_blank'>فتح</a></td>
+
+            <td>
+                <a class='btn btn-sm btn-warning' href='/admin/edit/{rid}'>تعديل</a>
+            </td>
+
+            <td>
+                <form method="post" action="/admin/delete/{rid}" onsubmit="return confirm('هل تريد الحذف؟');">
+                    <button class="btn btn-sm btn-danger">حذف</button>
+                </form>
+            </td>
+        </tr>
+        """
 
     html = f"""
     <html lang="ar" dir="rtl">
@@ -429,28 +434,34 @@ def admin_form():
                             <label class="form-label">المرحلة</label>
                             <select id="stage" name="stage_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-6">
                             <label class="form-label">الفصل</label>
                             <select id="term" name="term_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-6">
                             <label class="form-label">الصف</label>
                             <select id="grade" name="grade_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-6">
                             <label class="form-label">المادة</label>
                             <select id="subject" name="subject_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-6">
                             <label class="form-label">النوع</label>
                             <select id="option" name="option_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-6">
                             <label class="form-label">القسم</label>
                             <select id="child" name="child_id" class="form-select" required></select>
                         </div>
+
                         <div class="col-12">
-                            <label class="form-label">القسم الفرعي (اختياري)</label>
+                            <label class="form-label">القسم الفرعي</label>
                             <select id="subchild" name="subchild_id" class="form-select">
                                 <option value="">لا يوجد</option>
                             </select>
@@ -459,13 +470,13 @@ def admin_form():
 
                     <hr>
 
-                    <label class="form-label mt-2">العنوان</label>
+                    <label class="form-label">العنوان</label>
                     <input type="text" name="title" class="form-control mb-3" required>
 
                     <label class="form-label">الرابط (اختياري)</label>
                     <input type="url" name="url" class="form-control mb-3">
 
-                    <label class="form-label">ملف PDF (اختياري)</label>
+                    <label class="form-label">PDF (اختياري)</label>
                     <input type="file" name="file" accept=".pdf" class="form-control mb-3">
 
                     <button class="btn btn-primary w-100">حفظ</button>
@@ -480,7 +491,7 @@ def admin_form():
                             <tr>
                                 <th>ID</th><th>المرحلة</th><th>الفصل</th><th>الصف</th>
                                 <th>المادة</th><th>النوع</th><th>القسم</th>
-                                <th>الفرعي</th><th>العنوان</th><th>الرابط</th><th>حذف</th>
+                                <th>الفرعي</th><th>العنوان</th><th>الرابط</th><th>تعديل</th><th>حذف</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -492,80 +503,79 @@ def admin_form():
 
         </div>
 
-        <script>
-            const stages      = {stages_js};
-            const terms       = {terms_js};
-            const grades      = {grades_js};
-            const subjects    = {subjects_js};
-            const options     = {options_js};
-            const children    = {children_js};
-            const subchildren = {subchildren_js};
-            const subjOptMap  = {subj_opt_js};
-
-            function fill(sel, arr, text){
-                sel.innerHTML = "<option value=''>{text}</option>".replace('{text}', text);
-                arr.forEach(i=>{
-                    const o=document.createElement("option");
-                    o.value=i.id; o.textContent=i.name;
-                    sel.appendChild(o);
-                });
-            }
-
-            const s=document.getElementById("stage"),
-                  t=document.getElementById("term"),
-                  g=document.getElementById("grade"),
-                  sb=document.getElementById("subject"),
-                  op=document.getElementById("option"),
-                  ch=document.getElementById("child"),
-                  sc=document.getElementById("subchild");
-
-            fill(s, stages, "اختر المرحلة");
-
-            s.onchange=()=>{
-                fill(t, terms.filter(x=>x.stage_id==s.value), "اختر الفصل");
-                fill(g,[], "اختر الصف");
-                fill(sb,[], "اختر المادة");
-                fill(op,[], "اختر النوع");
-                fill(ch,[], "اختر القسم");
-                sc.innerHTML="<option value=''>لا يوجد</option>";
-            };
-
-            t.onchange=()=>{
-                fill(g, grades.filter(x=>x.term_id==t.value), "اختر الصف");
-                fill(sb,[], "اختر المادة");
-                fill(op,[], "اختر النوع");
-                fill(ch,[], "اختر القسم");
-                sc.innerHTML="<option value=''>لا يوجد</option>";
-            };
-
-            g.onchange=()=>{
-                fill(sb, subjects.filter(x=>x.grade_id==g.value), "اختر المادة");
-                fill(op,[], "اختر النوع");
-                fill(ch,[], "اختر القسم");
-                sc.innerHTML="<option value=''>لا يوجد</option>";
-            };
-
-            sb.onchange=()=>{
-                const allowed=subjOptMap.filter(x=>x.subject_id==sb.value).map(x=>x.option_id);
-                fill(op, options.filter(x=>allowed.includes(x.id)), "اختر النوع");
-                fill(ch,[], "اختر القسم");
-                sc.innerHTML="<option value=''>لا يوجد</option>";
-            };
-
-            op.onchange=()=>{
-                fill(ch, children.filter(x=>x.option_id==op.value), "اختر القسم");
-                sc.innerHTML="<option value=''>لا يوجد</option>";
-            };
-
-            ch.onchange=()=>{
-                fill(sc, subchildren.filter(x=>x.child_id==ch.value), "لا يوجد");
-            };
-
-        </script>
-
     </body>
     </html>
     """
 
     return HTMLResponse(html)
-    
+@app.get("/admin/edit/{res_id}", response_class=HTMLResponse)
+def edit_resource_page(res_id: int):
+    cursor.execute("SELECT title, url FROM resources WHERE id=?", (res_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        return HTMLResponse("❌ الرابط غير موجود", status_code=404)
+
+    title, url = row
+
+    html = f"""
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="utf-8">
+        <title>تعديل الرابط</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+    </head>
+
+    <body class="p-3">
+        <div class="container">
+            <h2 class="mb-4">✏️ تعديل الرابط رقم {res_id}</h2>
+
+            <form method="post" action="/admin/edit/{res_id}" enctype="multipart/form-data">
+
+                <label class="form-label">عنوان الرابط:</label>
+                <input type="text" name="title" class="form-control mb-3" value="{title}" required>
+
+                <label class="form-label">الرابط (URL):</label>
+                <input type="url" name="url" class="form-control mb-3" value="{url}">
+
+                <label class="form-label">PDF جديد (اختياري):</label>
+                <input type="file" name="file" accept=".pdf" class="form-control mb-3">
+
+                <button class="btn btn-success w-100">حفظ التعديلات</button>
+            </form>
+
+            <a href="/admin" class="btn btn-secondary w-100 mt-3">رجوع للوحة التحكم</a>
+        </div>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(html)
+@app.post("/admin/edit/{res_id}")
+async def edit_resource(res_id: int, 
+                        title: str = Form(...),
+                        url: str | None = Form(None),
+                        file: UploadFile | None = File(None)):
+
+    final_url = url
+
+    # لو PDF جديد
+    if file:
+        upload_dir = os.path.join(BASE_DIR, "uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file_path = os.path.join(upload_dir, file.filename)
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
+
+        final_url = f"{APP_URL}/files/{file.filename}"
+
+    cursor.execute("""
+        UPDATE resources
+        SET title=?, url=?
+        WHERE id=?
+    """, (title, final_url, res_id))
+
+    conn.commit()
+
+    return RedirectResponse("/admin", status_code=303)
