@@ -341,225 +341,15 @@ def _fetch_all(query, params=()):
 # ============================================================
 #   ADMIN PANEL HTML (Bootstrap + Dynamic Dropdowns)
 # ============================================================
-@app.get("/admin", response_class=HTMLResponse)
-def admin_form():
-
-    stages = _fetch_all("SELECT id, name FROM stages ORDER BY id")
-    terms = _fetch_all("SELECT id, name, stage_id FROM terms ORDER BY id")
-    grades = _fetch_all("SELECT id, name, term_id FROM grades ORDER BY id")
-    subjects = _fetch_all("SELECT id, name, grade_id FROM subjects ORDER BY id")
-    options = _fetch_all("SELECT id, name FROM subject_options ORDER BY id")
-    children = _fetch_all("SELECT id, name, option_id FROM option_children ORDER BY id")
-    subchildren = _fetch_all("SELECT id, name, child_id FROM option_subchildren ORDER BY id")
-    subj_opt_map = _fetch_all("SELECT subject_id, option_id FROM subject_option_map")
-
-    resources = _fetch_all("""
-        SELECT id, title, url,
-               stage_id, term_id, grade_id,
-               subject_id, option_id, child_id, subchild_id
-        FROM resources
-        ORDER BY id DESC
-        LIMIT 200
-    """)
-
-    stage_map = {s[0]: s[1] for s in stages}
-    term_map = {t[0]: t[1] for t in terms}
-    grade_map = {g[0]: g[1] for g in grades}
-    subj_map = {s[0]: s[1] for s in subjects}
-    opt_map = {o[0]: o[1] for o in options}
-    child_map = {c[0]: c[1] for c in children}
-    subchild_map = {sc[0]: sc[1] for sc in subchildren}
-
-    stages_js      = json.dumps(stages, ensure_ascii=False)
-    terms_js       = json.dumps(terms, ensure_ascii=False)
-    grades_js      = json.dumps(grades, ensure_ascii=False)
-    subjects_js    = json.dumps(subjects, ensure_ascii=False)
-    options_js     = json.dumps(options, ensure_ascii=False)
-    children_js    = json.dumps(children, ensure_ascii=False)
-    subchildren_js = json.dumps(subchildren, ensure_ascii=False)
-    subj_opt_js    = json.dumps(subj_opt_map, ensure_ascii=False)
-
-    rows_html = ""
-    for r in resources:
-        rid, title, url, st_id, term_id, grade_id, subj_id, opt_id, child_id, subc_id = r
-
-        rows_html += f"""
-        <tr>
-            <td>{rid}</td>
-            <td>{stage_map.get(st_id, '')}</td>
-            <td>{term_map.get(term_id, '')}</td>
-            <td>{grade_map.get(grade_id, '')}</td>
-            <td>{subj_map.get(subj_id, '')}</td>
-            <td>{opt_map.get(opt_id, '')}</td>
-            <td>{child_map.get(child_id, '')}</td>
-            <td>{subchild_map.get(subc_id, '') if subc_id else ''}</td>
-            <td>{title}</td>
-            <td><a href='{url}' target='_blank'>فتح</a></td>
-
-            <td>
-                <a class='btn btn-sm btn-warning' href='/admin/edit/{rid}'>تعديل</a>
-            </td>
-
-            <td>
-                <form method="post" action="/admin/delete/{rid}" onsubmit="return confirm('هل تريد الحذف؟');">
-                    <button class="btn btn-sm btn-danger">حذف</button>
-                </form>
-            </td>
-        </tr>
-        """
-
-    html = f"""
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="utf-8">
-        <title>لوحة التحكم</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-    </head>
-
-    <body class="p-3">
-
-        <div class="container">
-            <h1 class="text-center mb-4">✨ لوحة تحكم نيو أكاديمي ✨</h1>
-
-            <div class="card p-3 mb-4">
-                <h4>➕ إضافة رابط / PDF</h4>
-
-                <form method="post" action="/admin/add" enctype="multipart/form-data">
-
-                    <label class="form-label">كلمة المرور:</label>
-                    <input type="password" name="password" class="form-control mb-3" required>
-
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <label class="form-label">المرحلة</label>
-                            <select id="stage" name="stage_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">الفصل</label>
-                            <select id="term" name="term_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">الصف</label>
-                            <select id="grade" name="grade_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">المادة</label>
-                            <select id="subject" name="subject_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">النوع</label>
-                            <select id="option" name="option_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-6">
-                            <label class="form-label">القسم</label>
-                            <select id="child" name="child_id" class="form-select" required></select>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">القسم الفرعي</label>
-                            <select id="subchild" name="subchild_id" class="form-select">
-                                <option value="">لا يوجد</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <label class="form-label">العنوان</label>
-                    <input type="text" name="title" class="form-control mb-3" required>
-
-                    <label class="form-label">الرابط (اختياري)</label>
-                    <input type="url" name="url" class="form-control mb-3">
-
-                    <label class="form-label">PDF (اختياري)</label>
-                    <input type="file" name="file" accept=".pdf" class="form-control mb-3">
-
-                    <button class="btn btn-primary w-100">حفظ</button>
-                </form>
-            </div>
-
-            <div class="card p-3">
-                <h4>🔗 أحدث 200 رابط</h4>
-                <div class="table-responsive">
-                    <table class="table table-hover table-bordered align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>ID</th><th>المرحلة</th><th>الفصل</th><th>الصف</th>
-                                <th>المادة</th><th>النوع</th><th>القسم</th>
-                                <th>الفرعي</th><th>العنوان</th><th>الرابط</th><th>تعديل</th><th>حذف</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows_html}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-        </div>
-
-    </body>
-    </html>
-    """
-
-    return HTMLResponse(html)
-@app.get("/admin/edit/{res_id}", response_class=HTMLResponse)
-def edit_resource_page(res_id: int):
-    cursor.execute("SELECT title, url FROM resources WHERE id=?", (res_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        return HTMLResponse("❌ الرابط غير موجود", status_code=404)
-
-    title, url = row
-
-    html = f"""
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="utf-8">
-        <title>تعديل الرابط</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-    </head>
-
-    <body class="p-3">
-        <div class="container">
-            <h2 class="mb-4">✏️ تعديل الرابط رقم {res_id}</h2>
-
-            <form method="post" action="/admin/edit/{res_id}" enctype="multipart/form-data">
-
-                <label class="form-label">عنوان الرابط:</label>
-                <input type="text" name="title" class="form-control mb-3" value="{title}" required>
-
-                <label class="form-label">الرابط (URL):</label>
-                <input type="url" name="url" class="form-control mb-3" value="{url}">
-
-                <label class="form-label">PDF جديد (اختياري):</label>
-                <input type="file" name="file" accept=".pdf" class="form-control mb-3">
-
-                <button class="btn btn-success w-100">حفظ التعديلات</button>
-            </form>
-
-            <a href="/admin" class="btn btn-secondary w-100 mt-3">رجوع للوحة التحكم</a>
-        </div>
-    </body>
-    </html>
-    """
-
-    return HTMLResponse(html)
 @app.post("/admin/edit/{res_id}")
-async def edit_resource(res_id: int, 
-                        title: str = Form(...),
-                        url: str | None = Form(None),
-                        file: UploadFile | None = File(None)):
-
+async def edit_resource(
+    res_id: int,
+    title: str = Form(...),
+    url: str | None = Form(None),
+    file: UploadFile | None = File(None),
+):
     final_url = url
 
-    # لو PDF جديد
     if file:
         upload_dir = os.path.join(BASE_DIR, "uploads")
         os.makedirs(upload_dir, exist_ok=True)
@@ -572,10 +362,9 @@ async def edit_resource(res_id: int,
 
     cursor.execute("""
         UPDATE resources
-        SET title=?, url=?
-        WHERE id=?
+        SET title = ?, url = ?
+        WHERE id = ?
     """, (title, final_url, res_id))
-
     conn.commit()
 
     return RedirectResponse("/admin", status_code=303)
