@@ -245,16 +245,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #   SEND RESOURCES
 # ============================================================
 async def send_resources(update, state):
-print("====== BOT DEBUG START ======")
-print("stage_id    =", state.get("stage_id"))
-print("term_id     =", state.get("term_id"))
-print("grade_id    =", state.get("grade_id"))
-print("subject_id  =", state.get("subject_id"))
-print("option_id   =", state.get("option_id"))
-print("child_id    =", state.get("child_id"))
-print("subchild_id =", state.get("subchild_id"))
-print("====== BOT DEBUG END ========")
-
+    print("====== BOT DEBUG START ======")
+    print("stage_id    =", state.get("stage_id"))
+    print("term_id     =", state.get("term_id"))
+    print("grade_id    =", state.get("grade_id"))
+    print("subject_id  =", state.get("subject_id"))
+    print("option_id   =", state.get("option_id"))
+    print("child_id    =", state.get("child_id"))
+    print("subchild_id =", state.get("subchild_id"))
+    print("====== BOT DEBUG END ========")
     cursor.execute("""
         SELECT title, url
         FROM resources
