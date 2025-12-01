@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, Response, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -497,23 +498,41 @@ async def admin_add(
     url: str = Form(""),
     file: UploadFile | None = File(None),
 ):
+    # ------------------------ كلمة سر ------------------------
     if password != ADMIN_PASSWORD:
         return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
 
+    # ------------------------ منع رابط + PDF معاً ------------------------
+    if url.strip() and file is not None and file.filename.strip() != "":
+        return HTMLResponse("❌ اختاري رابط *أو* PDF فقط — مش الاتنين!", status_code=400)
+
+    # ------------------------ تجهيز subchild ------------------------
     subchild_val = int(subchild_id) if subchild_id.strip() else None
+
+    # ------------------------ لو PDF مرفوع ------------------------
     final_url = url.strip()
 
-    if file:
-        upload_dir = UPLOAD_DIR
-        os.makedirs(upload_dir, exist_ok=True)
-        save_path = os.path.join(upload_dir, file.filename)
+    if file and file.filename.strip() != "":
+        filename = file.filename.strip()
+
+        # ملف فاضي؟ نرجع Error
+        if filename in ["", "/", ".", ".."]:
+            return HTMLResponse("❌ اسم الملف غير صالح", status_code=400)
+
+        save_path = os.path.join(UPLOAD_DIR, filename)
+
+        # كتابة الملف
         with open(save_path, "wb") as f:
             f.write(await file.read())
-        final_url = f"{APP_URL}/files/{file.filename}"
 
+        # رابط file
+        final_url = f"{APP_URL}/files/{filename}"
+
+    # ------------------------ لا رابط و لا PDF ؟ ------------------------
     if not final_url:
-        return HTMLResponse("❌ يجب إضافة رابط أو PDF", status_code=400)
+        return HTMLResponse("❌ لازم تضيفي رابط أو ترفعي PDF", status_code=400)
 
+    # ------------------------ إدخال في DB ------------------------
     cursor.execute(
         """
         INSERT INTO resources (
@@ -540,14 +559,8 @@ async def admin_add(
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   DELETE RESOURCE
+#   EDIT SAVE
 # ============================================================
-@app.post("/admin/delete/{rid}")
-def delete_resource(rid: int):
-    cursor.execute("DELETE FROM resources WHERE id=?", (rid,))
-    conn.commit()
-    return RedirectResponse("/admin", status_code=303)
-
 # ============================================================
 #   EDIT PAGE
 # ============================================================
@@ -555,6 +568,7 @@ def delete_resource(rid: int):
 def edit_page(rid: int):
     cursor.execute("SELECT title, url FROM resources WHERE id=?", (rid,))
     row = cursor.fetchone()
+
     if not row:
         return HTMLResponse("❌ الرابط غير موجود", status_code=404)
 
@@ -563,28 +577,35 @@ def edit_page(rid: int):
     return HTMLResponse(
         f"""
         <html dir="rtl">
+        <head>
+            <meta charset="utf-8">
+            <title>تعديل البيانات</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+
         <body class="p-4">
-            <h3>تعديل الرابط رقم {rid}</h3>
+            <h3 class="mb-3">✏️ تعديل الرابط رقم {rid}</h3>
 
             <form method="post" enctype="multipart/form-data">
-                <label>العنوان</label>
+
+                <label class="mt-2">العنوان:</label>
                 <input name="title" class="form-control" value="{title}">
 
-                <label>الرابط</label>
+                <label class="mt-3">الرابط (إن وجد):</label>
                 <input name="url" class="form-control" value="{url or ''}">
 
-                <label>PDF جديد (اختياري)</label>
+                <label class="mt-3">رفع PDF جديد (اختياري):</label>
                 <input type="file" name="file" class="form-control" accept=".pdf">
 
-                <button class="btn btn-success mt-3">حفظ</button>
+                <button class="btn btn-success mt-4">💾 حفظ التعديلات</button>
             </form>
 
-            <a href="/admin" class="mt-3 btn btn-secondary">رجوع</a>
+            <a href="/admin" class="btn btn-secondary mt-3">⬅️ رجوع للوحة التحكم</a>
+
         </body>
         </html>
         """
     )
-
 # ============================================================
 #   EDIT SAVE
 # ============================================================
@@ -595,17 +616,20 @@ async def edit_save(
     url: str = Form(""),
     file: UploadFile | None = File(None),
 ):
-
     final_url = url.strip()
 
-    if file:
-        upload_dir = UPLOAD_DIR
-        os.makedirs(upload_dir, exist_ok=True)
-        save_path = os.path.join(upload_dir, file.filename)
+    # لو رفع PDF جديد
+    if file and file.filename.strip() != "":
+        filename = file.filename.strip()
+        save_path = os.path.join(UPLOAD_DIR, filename)
+
         with open(save_path, "wb") as f:
             f.write(await file.read())
-        final_url = f"{APP_URL}/files/{file.filename}"
 
+        # توليد رابط PDF
+        final_url = f"{APP_URL}/files/{filename}"
+
+    # حفظ التعديلات
     cursor.execute(
         """
         UPDATE resources
