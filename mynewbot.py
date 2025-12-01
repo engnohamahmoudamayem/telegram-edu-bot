@@ -28,12 +28,13 @@ from telegram.ext import (
 # ============================================================
 load_dotenv()
 
+# Use pathlib for robust path manipulation
 BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "edu_bot_data.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
 TEMPLATE_DIR = BASE_DIR / "templates" # A good practice to have a templates dir
 
-# Ensure essential directories exist
+# Ensure essential directories exist on startup
 UPLOAD_DIR.mkdir(exist_ok=True)
 TEMPLATE_DIR.mkdir(exist_ok=True)
 
@@ -57,9 +58,9 @@ log = logging.getLogger("EDU_BOT")
 #   DATABASE LAYER
 # ============================================================
 def get_db_connection():
-    """Establishes and returns a database connection."""
+    """Establishes and returns a database connection with row factory."""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row  # Allow accessing columns by name
+    conn.row_factory = sqlite3.Row  # Allow accessing columns by name (e.g., row['name'])
     return conn
 
 def init_db():
@@ -67,100 +68,55 @@ def init_db():
     log.info("Initializing database...")
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        # ... (all CREATE TABLE IF NOT EXISTS statements from previous version) ...
         # Stages Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS stages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
-        )
+        CREATE TABLE IF NOT EXISTS stages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)
         """)
         # Terms Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS terms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            stage_id INTEGER NOT NULL,
-            FOREIGN KEY (stage_id) REFERENCES stages (id)
-        )
+        CREATE TABLE IF NOT EXISTS terms (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, stage_id INTEGER NOT NULL, FOREIGN KEY (stage_id) REFERENCES stages (id))
         """)
         # Grades Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS grades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            term_id INTEGER NOT NULL,
-            FOREIGN KEY (term_id) REFERENCES terms (id)
-        )
+        CREATE TABLE IF NOT EXISTS grades (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, term_id INTEGER NOT NULL, FOREIGN KEY (term_id) REFERENCES terms (id))
         """)
         # Subjects Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subjects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            grade_id INTEGER NOT NULL,
-            FOREIGN KEY (grade_id) REFERENCES grades (id)
-        )
+        CREATE TABLE IF NOT EXISTS subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, grade_id INTEGER NOT NULL, FOREIGN KEY (grade_id) REFERENCES grades (id))
         """)
         # Subject Options Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subject_options (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
-        )
+        CREATE TABLE IF NOT EXISTS subject_options (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)
         """)
         # Subject-Option Mapping Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subject_option_map (
-            subject_id INTEGER NOT NULL,
-            option_id INTEGER NOT NULL,
-            PRIMARY KEY (subject_id, option_id),
-            FOREIGN KEY (subject_id) REFERENCES subjects (id),
-            FOREIGN KEY (option_id) REFERENCES subject_options (id)
-        )
+        CREATE TABLE IF NOT EXISTS subject_option_map (subject_id INTEGER NOT NULL, option_id INTEGER NOT NULL, PRIMARY KEY (subject_id, option_id), FOREIGN KEY (subject_id) REFERENCES subjects (id), FOREIGN KEY (option_id) REFERENCES subject_options (id))
         """)
         # Option Children Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS option_children (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            option_id INTEGER NOT NULL,
-            FOREIGN KEY (option_id) REFERENCES subject_options (id)
-        )
+        CREATE TABLE IF NOT EXISTS option_children (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, option_id INTEGER NOT NULL, FOREIGN KEY (option_id) REFERENCES subject_options (id))
         """)
         # Option Sub-Children Table
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS option_subchildren (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            child_id INTEGER NOT NULL,
-            FOREIGN KEY (child_id) REFERENCES option_children (id)
-        )
+        CREATE TABLE IF NOT EXISTS option_subchildren (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, child_id INTEGER NOT NULL, FOREIGN KEY (child_id) REFERENCES option_children (id))
         """)
         # Resources Table
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS resources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            url TEXT NOT NULL,
-            stage_id INTEGER,
-            term_id INTEGER,
-            grade_id INTEGER,
-            subject_id INTEGER,
-            option_id INTEGER,
-            child_id INTEGER,
-            subchild_id INTEGER,
-            FOREIGN KEY (stage_id) REFERENCES stages (id),
-            FOREIGN KEY (term_id) REFERENCES terms (id),
-            FOREIGN KEY (grade_id) REFERENCES grades (id),
-            FOREIGN KEY (subject_id) REFERENCES subjects (id),
-            FOREIGN KEY (option_id) REFERENCES subject_options (id),
-            FOREIGN KEY (child_id) REFERENCES option_children (id),
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, url TEXT NOT NULL,
+            stage_id INTEGER, term_id INTEGER, grade_id INTEGER, subject_id INTEGER,
+            option_id INTEGER, child_id INTEGER, subchild_id INTEGER,
+            FOREIGN KEY (stage_id) REFERENCES stages (id), FOREIGN KEY (term_id) REFERENCES terms (id),
+            FOREIGN KEY (grade_id) REFERENCES grades (id), FOREIGN KEY (subject_id) REFERENCES subjects (id),
+            FOREIGN KEY (option_id) REFERENCES subject_options (id), FOREIGN KEY (child_id) REFERENCES option_children (id),
             FOREIGN KEY (subchild_id) REFERENCES option_subchildren (id)
         )
         """)
         conn.commit()
     log.info("Database initialized successfully.")
 
+# Run DB initialization on startup
 init_db()
 
 # ============================================================
@@ -188,6 +144,32 @@ def fetch_all(query: str, params: tuple = ()) -> List[sqlite3.Row]:
         cursor = conn.cursor()
         cursor.execute(query, params)
         return cursor.fetchall()
+
+def fetch_one(query: str, params: tuple = ()) -> Optional[sqlite3.Row]:
+    """Executes a query and returns a single result."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchone()
+
+async def save_uploaded_file(file: UploadFile) -> Optional[str]:
+    """Saves an uploaded file with a unique name and returns its public URL."""
+    if not file or not file.filename:
+        return None
+    
+    try:
+        file_extension = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        save_path = UPLOAD_DIR / unique_filename
+        
+        content = await file.read()
+        save_path.write_bytes(content)
+        
+        log.info(f"File '{unique_filename}' saved successfully.")
+        return f"{APP_URL}/files/{unique_filename}"
+    except Exception as e:
+        log.error(f"Failed to save file: {e}")
+        return None
 
 async def send_resources(update: Update, state: dict):
     """Fetches and sends resources based on the current user state."""
@@ -246,7 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # --- Handle "Back" button ---
         if text == "رجوع ↩️":
-            # Define navigation steps
+            # This dictionary defines the navigation logic for the "Back" button
             back_steps = {
                 "subchild": ("suboption", "SELECT name FROM option_children WHERE option_id=?", (state["option_id"],), "اختر القسم:"),
                 "suboption": ("option", "SELECT so.name FROM subject_option_map som JOIN subject_options so ON so.id = som.option_id WHERE som.subject_id=?", (state["subject_id"],), "اختر نوع المحتوى:"),
@@ -271,7 +253,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "grade": ("subject", "SELECT id FROM grades WHERE name=?", "SELECT name FROM subjects WHERE grade_id=?", "اختر المادة:"),
             "subject": ("option", "SELECT id FROM subjects WHERE name=?", "SELECT so.name FROM subject_option_map som JOIN subject_options so ON so.id = som.option_id WHERE som.subject_id=?", "اختر نوع المحتوى:"),
             "option": ("suboption", "SELECT id FROM subject_options WHERE name=?", "SELECT name FROM option_children WHERE option_id=?", "اختر القسم:"),
-            "suboption": ("subchild", "SELECT id FROM option_children WHERE name=? AND option_id=?", "SELECT name FROM option_subchildren WHERE child_id=?", "اختر القسم الفرعي:"),
         }
 
         if state["step"] in step_handlers:
@@ -299,6 +280,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await send_resources(update, state)
         
         # Handle final selection (subchild)
+        if state.get("step") == "suboption":
+            row = fetch_one("SELECT id FROM option_children WHERE name=? AND option_id=?", (text, state["option_id"]))
+            if row:
+                state["child_id"] = row['id']
+                # Check for subchildren
+                subchildren = fetch_all("SELECT name FROM option_subchildren WHERE child_id=?", (state["child_id"],))
+                if subchildren:
+                    state["step"] = "subchild"
+                    await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard(subchildren))
+                else:
+                    await send_resources(update, state)
+
         if state.get("step") == "subchild":
             row = fetch_one("SELECT id FROM option_subchildren WHERE name=? AND child_id=?", (text, state["child_id"]))
             if row:
@@ -308,19 +301,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         log.error(f"Error in handle_message for chat_id {chat_id}: {e}")
         await update.message.reply_text("حدث خطأ غير متوقع. يرجى بدء المحادثة مرة أخرى باستخدام /start.")
-        del user_state[chat_id]
+        if chat_id in user_state:
+            del user_state[chat_id]
 
-def fetch_one(query: str, params: tuple = ()) -> Optional[sqlite3.Row]:
-    """Executes a query and returns a single result."""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        return cursor.fetchone()
 
 # ============================================================
 #   FASTAPI APPLICATION & LIFESPAN
 # ============================================================
 app = FastAPI(title="Edu Bot API")
+# Mount the 'uploads' directory to be served publicly
 app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
 @asynccontextmanager
@@ -374,7 +363,7 @@ def admin_panel():
             "resources": fetch_all("SELECT * FROM resources ORDER BY id DESC LIMIT 200"),
         }
 
-        # Create maps for easy lookup
+        # Create maps for easy lookup when rendering the table
         maps = {
             "stage_map": {s['id']: s['name'] for s in data["stages"]},
             "term_map": {t['id']: t['name'] for t in data["terms"]},
@@ -389,16 +378,11 @@ def admin_panel():
         for r in data["resources"]:
             rows_html += f"""
             <tr>
-                <td>{r['id']}</td>
-                <td>{maps['stage_map'].get(r['stage_id'], '')}</td>
-                <td>{maps['term_map'].get(r['term_id'], '')}</td>
-                <td>{maps['grade_map'].get(r['grade_id'], '')}</td>
-                <td>{maps['subject_map'].get(r['subject_id'], '')}</td>
-                <td>{maps['option_map'].get(r['option_id'], '')}</td>
-                <td>{maps['child_map'].get(r['child_id'], '')}</td>
+                <td>{r['id']}</td><td>{maps['stage_map'].get(r['stage_id'], '')}</td><td>{maps['term_map'].get(r['term_id'], '')}</td>
+                <td>{maps['grade_map'].get(r['grade_id'], '')}</td><td>{maps['subject_map'].get(r['subject_id'], '')}</td>
+                <td>{maps['option_map'].get(r['option_id'], '')}</td><td>{maps['child_map'].get(r['child_id'], '')}</td>
                 <td>{maps['sub_map'].get(r['subchild_id'], '') if r['subchild_id'] else ''}</td>
-                <td>{r['title']}</td>
-                <td><a href="{r['url']}" target="_blank">فتح</a></td>
+                <td>{r['title']}</td><td><a href="{r['url']}" target="_blank">فتح</a></td>
                 <td><a class="btn btn-warning btn-sm" href="/admin/edit/{r['id']}">تعديل</a></td>
                 <td><form method="post" action="/admin/delete/{r['id']}" onsubmit="return confirm('حذف نهائي؟');"><button class="btn btn-danger btn-sm">🗑️</button></form></td>
             </tr>
@@ -420,25 +404,6 @@ def admin_panel():
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # --- Admin Add/Edit/Delete Logic ---
-async def save_uploaded_file(file: UploadFile) -> Optional[str]:
-    """Saves an uploaded file and returns its public URL."""
-    if not file or not file.filename:
-        return None
-    
-    try:
-        file_extension = Path(file.filename).suffix
-        unique_filename = f"{uuid.uuid4()}{file_extension}"
-        save_path = UPLOAD_DIR / unique_filename
-        
-        content = await file.read()
-        save_path.write_bytes(content)
-        
-        log.info(f"File saved to {save_path}")
-        return f"{APP_URL}/files/{unique_filename}"
-    except Exception as e:
-        log.error(f"Failed to save file: {e}")
-        return None
-
 @app.post("/admin/add")
 async def admin_add(
     password: str = Form(...), stage_id: int = Form(...), term_id: int = Form(...),
@@ -496,7 +461,10 @@ async def edit_save(rid: int, title: str = Form(...), url: str = Form(""), file:
     """Saves the edited resource."""
     final_url = url.strip()
     if file and file.filename:
-        final_url = await save_uploaded_file(file) or final_url
+        # If a new file is uploaded, its URL overrides the old one
+        file_url = await save_uploaded_file(file)
+        if file_url:
+            final_url = file_url
     
     if not final_url:
         raise HTTPException(status_code=400, detail="A URL or a file must be provided.")
