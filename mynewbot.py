@@ -69,6 +69,12 @@ def ensure_resources_columns():
 ensure_resources_columns()
 
 # ============================================================
+#   FASTAPI APP (لازم يكون قبل أي @app.get/@app.post)
+# ============================================================
+app = FastAPI()
+app.state.tg_application = None
+
+# ============================================================
 #   USER STATE
 # ============================================================
 user_state = {}
@@ -79,26 +85,36 @@ user_state = {}
 def make_keyboard(options):
     """
     يأخذ قائمة من:
-      - tuples مثل: [('صف أول',), ('صف ثاني',)]
+      - tuples مثل: (id, name) أو (name,) أو (id, name, extra...)
       - أو strings مباشرة
     ويرجع Keyboard بالشكل المطلوب من تيليجرام:
       [ ['زر1', 'زر2'], ['زر3'], ['رجوع ↩️'] ]
     """
     labels = []
+
     for opt in options:
         if isinstance(opt, (tuple, list)):
-            value = opt[0]
+            if len(opt) >= 2:
+                # لو (id, name, ...) → نأخذ الاسم (العنصر الثاني)
+                labels.append(str(opt[1]))
+            elif len(opt) == 1:
+                labels.append(str(opt[0]))
         else:
-            value = opt
-        labels.append(str(value))  # تحويل إلى نص دائمًا
+            labels.append(str(opt))
+
+    # فلترة الفراغات
+    labels = [lbl for lbl in labels if lbl.strip()]
 
     rows = []
     for i in range(0, len(labels), 2):
         row = labels[i:i + 2]
-        row.reverse()  # عشان RTL يكون الشكل لطيف
+        # ممكن تعكسي لو حابة RTL:
+        # row.reverse()
         rows.append(row)
 
+    # زر الرجوع
     rows.append(["رجوع ↩️"])
+
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
@@ -117,12 +133,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cursor.execute("SELECT id, name FROM stages ORDER BY id")
     stages = cursor.fetchall()
-    # نأخذ الاسم فقط في الكيبورد
-    stage_names = [(s[1],) for s in stages]
 
     await update.message.reply_text(
         welcome,
-        reply_markup=make_keyboard(stage_names),
+        reply_markup=make_keyboard(stages),
         parse_mode="Markdown"
     )
 
@@ -139,7 +153,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await start(update, context)
 
     state = user_state[chat_id]
-    log.info(f"📩 USER CLICKED: {text}")
+    log.info(f"📩 USER CLICKED: {text} | STEP = {state.get('step')}")
 
     # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
@@ -147,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "subchild":
             state["step"] = "suboption"
             cursor.execute(
-                "SELECT name FROM option_children WHERE option_id=?",
+                "SELECT id, name FROM option_children WHERE option_id=?",
                 (state["option_id"],),
             )
             return await update.message.reply_text(
@@ -158,7 +172,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state["step"] = "option"
             cursor.execute(
                 """
-                SELECT subject_options.name
+                SELECT subject_options.id, subject_options.name
                 FROM subject_option_map
                 JOIN subject_options ON subject_options.id = subject_option_map.option_id
                 WHERE subject_option_map.subject_id=?
@@ -172,7 +186,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "option":
             state["step"] = "subject"
             cursor.execute(
-                "SELECT name FROM subjects WHERE grade_id=?",
+                "SELECT id, name FROM subjects WHERE grade_id=?",
                 (state["grade_id"],),
             )
             return await update.message.reply_text(
@@ -182,7 +196,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "subject":
             state["step"] = "grade"
             cursor.execute(
-                "SELECT name FROM grades WHERE term_id=?",
+                "SELECT id, name FROM grades WHERE term_id=?",
                 (state["term_id"],),
             )
             return await update.message.reply_text(
@@ -192,7 +206,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "grade":
             state["step"] = "term"
             cursor.execute(
-                "SELECT name FROM terms WHERE stage_id=?",
+                "SELECT id, name FROM terms WHERE stage_id=?",
                 (state["stage_id"],),
             )
             return await update.message.reply_text(
@@ -201,7 +215,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if state.get("step") == "term":
             state["step"] = "stage"
-            cursor.execute("SELECT name FROM stages ORDER BY id")
+            cursor.execute("SELECT id, name FROM stages ORDER BY id")
             return await update.message.reply_text(
                 "اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall())
             )
@@ -217,7 +231,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["stage_id"] = row[0]
         state["step"] = "term"
         cursor.execute(
-            "SELECT name FROM terms WHERE stage_id=?",
+            "SELECT id, name FROM terms WHERE stage_id=?",
             (state["stage_id"],),
         )
         return await update.message.reply_text(
@@ -236,7 +250,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["term_id"] = row[0]
         state["step"] = "grade"
         cursor.execute(
-            "SELECT name FROM grades WHERE term_id=?",
+            "SELECT id, name FROM grades WHERE term_id=?",
             (state["term_id"],),
         )
         return await update.message.reply_text(
@@ -245,7 +259,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- الصف ----------------
     if state["step"] == "grade":
-        # ✅ مهم: نربط الاسم بالـ term_id لتفادي التكرار بين المراحل
+        # نربط الاسم بالـ term_id لتفادي التكرار بين المراحل
         cursor.execute(
             "SELECT id FROM grades WHERE name=? AND term_id=?",
             (text, state["term_id"]),
@@ -256,7 +270,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["grade_id"] = row[0]
         state["step"] = "subject"
         cursor.execute(
-            "SELECT name FROM subjects WHERE grade_id=?",
+            "SELECT id, name FROM subjects WHERE grade_id=?",
             (state["grade_id"],),
         )
         return await update.message.reply_text(
@@ -265,7 +279,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- المادة ----------------
     if state["step"] == "subject":
-        # ✅ مهم: نربط الاسم بالـ grade_id لتفادي التكرار بين الصفوف
+        # نربط الاسم بالـ grade_id لتفادي التكرار بين الصفوف
         cursor.execute(
             "SELECT id FROM subjects WHERE name=? AND grade_id=?",
             (text, state["grade_id"]),
@@ -277,7 +291,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["step"] = "option"
         cursor.execute(
             """
-            SELECT subject_options.name
+            SELECT subject_options.id, subject_options.name
             FROM subject_option_map
             JOIN subject_options ON subject_options.id = subject_option_map.option_id
             WHERE subject_option_map.subject_id=?
@@ -300,7 +314,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["option_id"] = row[0]
         state["step"] = "suboption"
         cursor.execute(
-            "SELECT name FROM option_children WHERE option_id=?",
+            "SELECT id, name FROM option_children WHERE option_id=?",
             (state["option_id"],),
         )
         return await update.message.reply_text(
@@ -320,7 +334,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["child_id"] = row[0]
 
         cursor.execute(
-            "SELECT name FROM option_subchildren WHERE child_id=?",
+            "SELECT id, name FROM option_subchildren WHERE child_id=?",
             (state["child_id"],),
         )
         subs = cursor.fetchall()
@@ -403,17 +417,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
-#   FASTAPI — TELEGRAM WEBHOOK
+#   FASTAPI — TELEGRAM WEBHOOK (lifespan)
 # ============================================================
-app = FastAPI()
-app.state.tg_application = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    tg_app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
 
     app.state.tg_application = tg_app
 
@@ -459,7 +471,9 @@ def admin_form():
     grades = _fetch_all("SELECT id, name, term_id FROM grades ORDER BY id")
     subjects = _fetch_all("SELECT id, name, grade_id FROM subjects ORDER BY id")
     options = _fetch_all("SELECT id, name FROM subject_options ORDER BY id")
-    children = _fetch_all("SELECT id, name, option_id FROM option_children ORDER BY id")
+    children = _fetch_all(
+        "SELECT id, name, option_id FROM option_children ORDER BY id"
+    )
     subchildren = _fetch_all(
         "SELECT id, name, child_id FROM option_subchildren ORDER BY id"
     )
@@ -471,10 +485,9 @@ def admin_form():
                title, url, subchild_id,
                stage_id, term_id, grade_id
         FROM resources ORDER BY id DESC LIMIT 200
-    """
+        """
     )
 
-    # خرائط للأسماء في جدول العرض
     stage_map = {s[0]: s[1] for s in stages}
     term_map = {t[0]: t[1] for t in terms}
     grade_map = {g[0]: g[1] for g in grades}
@@ -509,7 +522,7 @@ def admin_form():
         </tr>
         """
 
-    # تجهيز JSON للـ dropdowns كـ objects بدل tuples
+    # تجهيز JSON للـ dropdowns كـ objects
     stages_json = [{"id": s[0], "name": s[1]} for s in stages]
     terms_json = [{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms]
     grades_json = [{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades]
@@ -561,12 +574,9 @@ async def admin_add(
     if password != ADMIN_PASSWORD:
         return HTMLResponse("❌ كلمة المرور غلط", status_code=401)
 
-    # تحويل subchild_id إلى NULL لو فاضي
     subchild_val = int(subchild_id) if subchild_id.strip() else None
-
     final_url = url.strip()
 
-    # PDF Upload
     if file:
         upload_dir = os.path.join(BASE_DIR, "uploads")
         os.makedirs(upload_dir, exist_ok=True)
@@ -588,7 +598,7 @@ async def admin_add(
             stage_id, term_id, grade_id
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
+        """,
         (
             subject_id,
             option_id,
@@ -649,7 +659,7 @@ def admin_edit_page(rid: int):
 
         <a href="/admin">رجوع</a>
         </body></html>
-    """
+        """
     )
 
 
@@ -677,12 +687,9 @@ async def admin_edit_save(
         final_url = f"{APP_URL}/files/{file.filename}"
 
     cursor.execute(
-        """
-        UPDATE resources SET title=?, url=? WHERE id=?
-    """,
+        "UPDATE resources SET title=?, url=? WHERE id=?",
         (title, final_url, rid),
     )
 
     conn.commit()
-
     return RedirectResponse("/admin", status_code=303)

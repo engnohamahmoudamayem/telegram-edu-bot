@@ -109,7 +109,7 @@
 </div>
 
 <script>
-// --- Data injected from FastAPI (NO JSON.parse) ---
+// --- Data injected from FastAPI ---
 const stages = __STAGES__;
 const terms = __TERMS__;
 const grades = __GRADES__;
@@ -119,7 +119,7 @@ const children = __CHILDREN__;
 const subchildren = __SUBCHILDREN__;
 const subjectOptionMap = __SUBJOPT__;
 
-// --- DOM Elements ---
+// DOM elements
 const stageSelect = document.getElementById('stage_id');
 const termSelect = document.getElementById('term_id');
 const gradeSelect = document.getElementById('grade_id');
@@ -128,73 +128,81 @@ const optionSelect = document.getElementById('option_id');
 const childSelect = document.getElementById('child_id');
 const subchildSelect = document.getElementById('subchild_id');
 
-// --- Helper function ---
+// Helper to populate dropdown
 function populateDropdown(select, data, placeholder = "اختر...") {
     select.innerHTML = `<option value="">${placeholder}</option>`;
     if (!data) return;
     data.forEach(item => {
-        select.add(new Option(item.name, item.id));
+        const opt = new Option(item.name, item.id);
+        select.add(opt);
     });
 }
 
-// --- Dynamic Dropdowns ---
+// Cascading logic
 stageSelect.addEventListener('change', () => {
-    const id = stageSelect.value;
-    termSelect.disabled = !id;
-    populateDropdown(termSelect, terms.filter(t => t.stage_id == id));
-    populateDropdown(gradeSelect); gradeSelect.disabled = true;
-    populateDropdown(subjectSelect); subjectSelect.disabled = true;
-    populateDropdown(optionSelect); optionSelect.disabled = true;
-    populateDropdown(childSelect); childSelect.disabled = true;
-    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+    const stageId = stageSelect.value;
+    termSelect.disabled = !stageId;
+    populateDropdown(termSelect, terms.filter(t => t.stage_id == stageId), "اختر الفصل...");
+    gradeSelect.disabled = true;  populateDropdown(gradeSelect, []);
+    subjectSelect.disabled = true; populateDropdown(subjectSelect, []);
+    optionSelect.disabled = true;  populateDropdown(optionSelect, []);
+    childSelect.disabled = true;   populateDropdown(childSelect, []);
+    subchildSelect.disabled = true;populateDropdown(subchildSelect, []);
 });
 
 termSelect.addEventListener('change', () => {
-    const id = termSelect.value;
-    gradeSelect.disabled = !id;
-    populateDropdown(gradeSelect, grades.filter(g => g.term_id == id));
-    populateDropdown(subjectSelect); subjectSelect.disabled = true;
-    populateDropdown(optionSelect); optionSelect.disabled = true;
-    populateDropdown(childSelect); childSelect.disabled = true;
-    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+    const termId = termSelect.value;
+    gradeSelect.disabled = !termId;
+    populateDropdown(gradeSelect, grades.filter(g => g.term_id == termId), "اختر الصف...");
+    subjectSelect.disabled = true; populateDropdown(subjectSelect, []);
+    optionSelect.disabled = true;  populateDropdown(optionSelect, []);
+    childSelect.disabled = true;   populateDropdown(childSelect, []);
+    subchildSelect.disabled = true;populateDropdown(subchildSelect, []);
 });
 
 gradeSelect.addEventListener('change', () => {
-    const id = gradeSelect.value;
-    subjectSelect.disabled = !id;
-    populateDropdown(subjectSelect, subjects.filter(s => s.grade_id == id));
-    populateDropdown(optionSelect); optionSelect.disabled = true;
-    populateDropdown(childSelect); childSelect.disabled = true;
-    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+    const gradeId = gradeSelect.value;
+    subjectSelect.disabled = !gradeId;
+    populateDropdown(subjectSelect, subjects.filter(s => s.grade_id == gradeId), "اختر المادة...");
+    optionSelect.disabled = true;  populateDropdown(optionSelect, []);
+    childSelect.disabled = true;   populateDropdown(childSelect, []);
+    subchildSelect.disabled = true;populateDropdown(subchildSelect, []);
 });
 
 subjectSelect.addEventListener('change', () => {
-    const id = subjectSelect.value;
-    const allowedIds = subjectOptionMap.filter(m => m.subject_id == id).map(m => m.option_id);
-    const data = options.filter(o => allowedIds.includes(o.id));
-    optionSelect.disabled = data.length === 0;
-    populateDropdown(optionSelect, data);
-    populateDropdown(childSelect); childSelect.disabled = true;
-    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+    const subjectId = subjectSelect.value;
+    if (!subjectId) {
+        optionSelect.disabled = true;
+        populateDropdown(optionSelect, []);
+        return;
+    }
+    const allowedOptionIds = subjectOptionMap
+        .filter(m => m.subject_id == subjectId)
+        .map(m => m.option_id);
+    const availableOptions = options.filter(o => allowedOptionIds.includes(o.id));
+    optionSelect.disabled = availableOptions.length === 0;
+    populateDropdown(optionSelect, availableOptions, "اختر النوع...");
+    childSelect.disabled = true;   populateDropdown(childSelect, []);
+    subchildSelect.disabled = true;populateDropdown(subchildSelect, []);
 });
 
 optionSelect.addEventListener('change', () => {
-    const id = optionSelect.value;
-    childSelect.disabled = !id;
-    populateDropdown(childSelect, children.filter(c => c.option_id == id));
-    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+    const optionId = optionSelect.value;
+    childSelect.disabled = !optionId;
+    populateDropdown(childSelect, children.filter(c => c.option_id == optionId), "اختر القسم...");
+    subchildSelect.disabled = true;populateDropdown(subchildSelect, []);
 });
 
 childSelect.addEventListener('change', () => {
-    const id = childSelect.value;
-    const subs = subchildren.filter(sc => sc.child_id == id);
+    const childId = childSelect.value;
+    const subs = subchildren.filter(sc => sc.child_id == childId);
     subchildSelect.disabled = subs.length === 0;
-    populateDropdown(subchildSelect, subs, "لا يوجد أقسام فرعية");
+    populateDropdown(subchildSelect, subs, subs.length ? "اختر القسم الفرعي..." : "لا يوجد أقسام فرعية");
 });
 
-// --- Initial load ---
+// initial load
 document.addEventListener('DOMContentLoaded', () => {
-    populateDropdown(stageSelect, stages);
+    populateDropdown(stageSelect, stages, "اختر المرحلة...");
 });
 </script>
 
