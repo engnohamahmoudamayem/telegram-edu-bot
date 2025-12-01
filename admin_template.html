@@ -1,235 +1,218 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="utf-8">
-    <title>لوحة تحكم نيو أكاديمي</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة التحكم - منصة نيو أكاديمي</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #eef2ff, #e0f7fa);
-            min-height: 100vh;
-        }
-        .card {
-            border-radius: 18px;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-            border: none;
-        }
-        .main-title {
-            font-weight: 800;
-            color: #1e293b;
-        }
-        .badge-nano {
-            background: #0ea5e9;
-            color: #fff;
-            border-radius: 999px;
-            padding: 3px 10px;
-            font-size: 0.75rem;
-        }
-        .table thead th {
-            background: #f1f5f9 !important;
-            font-weight: 600;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .container-fluid { max-width: 1400px; }
+        .form-section { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .table-responsive { font-size: 0.9em; }
+        .table th { background-color: #e9ecef; }
     </style>
 </head>
+<body>
 
-<body class="p-3">
+<div class="container-fluid mt-4">
+    <h1 class="mb-4 text-center">📚 لوحة التحكم - إضافة محتوى جديد</h1>
 
-<div class="container-fluid">
-    <div class="text-center mb-4">
-        <h1 class="main-title">✨ لوحة تحكم نيو أكاديمي ✨</h1>
-        <span class="badge-nano mt-2">إدارة الروابط وملفات PDF للمنصة</span>
-    </div>
+    <!-- Add New Resource Form -->
+    <div class="form-section">
+        <form method="post" action="/admin/add" enctype="multipart/form-data">
+            <input type="hidden" name="password" value="admin123"> <!-- Simple password for demo -->
 
-    <div class="row g-4">
-        <!-- فورم الإضافة -->
-        <div class="col-lg-5">
-            <div class="card p-3">
-                <h4 class="mb-3">➕ إضافة رابط / PDF جديد</h4>
-
-                <form method="post" action="/admin/add" enctype="multipart/form-data">
-
-                    <div class="mb-2">
-                        <label class="form-label">كلمة المرور:</label>
-                        <input type="password" name="password" class="form-control" required>
-                    </div>
-
-                    <div class="row g-2 mt-1">
-                        <div class="col-6">
-                            <label class="form-label">المرحلة</label>
-                            <select id="stage" name="stage_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">الفصل</label>
-                            <select id="term" name="term_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">الصف</label>
-                            <select id="grade" name="grade_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">المادة</label>
-                            <select id="subject" name="subject_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">نوع المحتوى</label>
-                            <select id="option" name="option_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">القسم</label>
-                            <select id="child" name="child_id" class="form-select" required></select>
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">القسم الفرعي (اختياري)</label>
-                            <select id="subchild" name="subchild_id" class="form-select">
-                                <option value="">لا يوجد</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <div class="mb-2">
-                        <label class="form-label">العنوان</label>
-                        <input type="text" name="title" class="form-control" required>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">الرابط (اختياري)</label>
-                        <input type="url" name="url" class="form-control" placeholder="https://...">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">ملف PDF (اختياري)</label>
-                        <input type="file" name="file" accept=".pdf" class="form-control">
-                    </div>
-
-                    <button class="btn btn-primary w-100">💾 حفظ</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- جدول الروابط -->
-        <div class="col-lg-7">
-            <div class="card p-3">
-                <h4 class="mb-3">🔗 أحدث الروابط</h4>
-                <div class="table-responsive" style="max-height: 70vh; overflow:auto;">
-                    <table class="table table-hover table-bordered align-middle">
-                        <thead class="table-light">
-                        <tr>
-                            <th>ID</th>
-                            <th>المرحلة</th>
-                            <th>الفصل</th>
-                            <th>الصف</th>
-                            <th>المادة</th>
-                            <th>النوع</th>
-                            <th>القسم</th>
-                            <th>فرعي</th>
-                            <th>العنوان</th>
-                            <th>الرابط</th>
-                            <th>تعديل</th>
-                            <th>حذف</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        __ROWS__
-                        </tbody>
-                    </table>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label for="stage_id" class="form-label">المرحلة</label>
+                    <select id="stage_id" name="stage_id" class="form-select" required>
+                        <option value="">اختر المرحلة...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="term_id" class="form-label">الفصل</label>
+                    <select id="term_id" name="term_id" class="form-select" required disabled>
+                        <option value="">اختر الفصل...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="grade_id" class="form-label">الصف</label>
+                    <select id="grade_id" name="grade_id" class="form-select" required disabled>
+                        <option value="">اختر الصف...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="subject_id" class="form-label">المادة</label>
+                    <select id="subject_id" name="subject_id" class="form-select" required disabled>
+                        <option value="">اختر المادة...</option>
+                    </select>
                 </div>
             </div>
-        </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="option_id" class="form-label">نوع المحتوى</label>
+                    <select id="option_id" name="option_id" class="form-select" required disabled>
+                        <option value="">اختر النوع...</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="child_id" class="form-label">القسم</label>
+                    <select id="child_id" name="child_id" class="form-select" required disabled>
+                        <option value="">اختر القسم...</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="subchild_id" class="form-label">القسم الفرعي (اختياري)</label>
+                    <select id="subchild_id" name="subchild_id" class="form-select" disabled>
+                        <option value="">اختر القسم الفرعي...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="title" class="form-label">عنوان المادة</label>
+                    <input type="text" id="title" name="title" class="form-control" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="url" class="form-label">الرابط المباشر</label>
+                    <input type="url" id="url" name="url" class="form-control" placeholder="أو ارفع ملف PDF أدناه">
+                </div>
+                <div class="col-md-2 mb-3 d-flex align-items-end">
+                     <input type="file" id="file" name="file" class="form-control" accept=".pdf,application/pdf">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">➕ إضافة مادة</button>
+        </form>
+    </div>
+
+    <hr>
+
+    <!-- Existing Resources Table -->
+    <h2 class="mb-3">المواد المضافة حديثاً</h2>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>#</th><th>المرحلة</th><th>الفصل</th><th>الصف</th><th>المادة</th>
+                    <th>النوع</th><th>القسم</th><th>القسم الفرعي</th><th>العنوان</th>
+                    <th>رابط</th><th>تعديل</th><th>حذف</th>
+                </tr>
+            </thead>
+            <tbody>
+                __ROWS__
+            </tbody>
+        </table>
     </div>
 </div>
 
 <script>
-    // البيانات الخام من بايثون (قوائم عادية [[],[],...])
-    const stagesRaw      = [{"id": 1, "name": "الابتدائية"}, {"id": 2, "name": "المتوسطة"}, {"id": 3, "name": "الثانوية"}];
-    const termsRaw       = [{"id": 1, "name": "الفصل الأول", "stage_id": 1}, {"id": 2, "name": "الفصل الثاني", "stage_id": 1}, {"id": 3, "name": "الفصل الأول", "stage_id": 2}, {"id": 4, "name": "الفصل الثاني", "stage_id": 2}, {"id": 5, "name": "الفصل الأول", "stage_id": 3}, {"id": 6, "name": "الفصل الثاني", "stage_id": 3}];
-    const gradesRaw      = [{"id": 1, "name": "الصف الأول", "term_id": 1}, {"id": 2, "name": "الصف الثاني", "term_id": 1}, {"id": 3, "name": "الصف الثالث", "term_id": 1}, {"id": 4, "name": "الصف الرابع", "term_id": 1}, {"id": 5, "name": "الصف الخامس", "term_id": 1}, {"id": 6, "name": "الصف الأول", "term_id": 2}, {"id": 7, "name": "الصف الثاني", "term_id": 2}, {"id": 8, "name": "الصف الثالث", "term_id": 2}, {"id": 9, "name": "الصف الرابع", "term_id": 2}, {"id": 10, "name": "الصف الخامس", "term_id": 2}, {"id": 11, "name": "الصف السادس", "term_id": 3}, {"id": 12, "name": "الصف السابع", "term_id": 3}, {"id": 13, "name": "الصف الثامن", "term_id": 3}, {"id": 14, "name": "الصف التاسع", "term_id": 3}, {"id": 15, "name": "الصف السادس", "term_id": 4}, {"id": 16, "name": "الصف السابع", "term_id": 4}, {"id": 17, "name": "الصف الثامن", "term_id": 4}, {"id": 18, "name": "الصف التاسع", "term_id": 4}, {"id": 19, "name": "عاشر", "term_id": 5}, {"id": 20, "name": "حادي عشر أدبي", "term_id": 5}, {"id": 21, "name": "حادي عشر علمي", "term_id": 5}, {"id": 22, "name": "ثاني عشر أدبي", "term_id": 5}, {"id": 23, "name": "ثاني عشر علمي", "term_id": 5}, {"id": 24, "name": "عاشر", "term_id": 6}, {"id": 25, "name": "حادي عشر أدبي", "term_id": 6}, {"id": 26, "name": "حادي عشر علمي", "term_id": 6}, {"id": 27, "name": "ثاني عشر أدبي", "term_id": 6}, {"id": 28, "name": "ثاني عشر علمي", "term_id": 6}];
-    const subjectsRaw    = [{"id": 1, "name": "الرياضيات", "grade_id": 1}, {"id": 2, "name": "اللغة العربية", "grade_id": 1}, {"id": 3, "name": "العلوم", "grade_id": 1}, {"id": 4, "name": "اللغة الإنجليزية", "grade_id": 1}, {"id": 5, "name": "التربية الإسلامية", "grade_id": 1}, {"id": 6, "name": "الدراسات الاجتماعية", "grade_id": 1}, {"id": 7, "name": "الرياضيات", "grade_id": 2}, {"id": 8, "name": "اللغة العربية", "grade_id": 2}, {"id": 9, "name": "العلوم", "grade_id": 2}, {"id": 10, "name": "اللغة الإنجليزية", "grade_id": 2}, {"id": 11, "name": "التربية الإسلامية", "grade_id": 2}, {"id": 12, "name": "الدراسات الاجتماعية", "grade_id": 2}, {"id": 13, "name": "الرياضيات", "grade_id": 3}, {"id": 14, "name": "اللغة العربية", "grade_id": 3}, {"id": 15, "name": "العلوم", "grade_id": 3}, {"id": 16, "name": "اللغة الإنجليزية", "grade_id": 3}, {"id": 17, "name": "التربية الإسلامية", "grade_id": 3}, {"id": 18, "name": "الدراسات الاجتماعية", "grade_id": 3}, {"id": 19, "name": "الرياضيات", "grade_id": 4}, {"id": 20, "name": "اللغة العربية", "grade_id": 4}, {"id": 21, "name": "العلوم", "grade_id": 4}, {"id": 22, "name": "اللغة الإنجليزية", "grade_id": 4}, {"id": 23, "name": "التربية الإسلامية", "grade_id": 4}, {"id": 24, "name": "الدراسات الاجتماعية", "grade_id": 4}, {"id": 25, "name": "الرياضيات", "grade_id": 5}, {"id": 26, "name": "اللغة العربية", "grade_id": 5}, {"id": 27, "name": "العلوم", "grade_id": 5}, {"id": 28, "name": "اللغة الإنجليزية", "grade_id": 5}, {"id": 29, "name": "التربية الإسلامية", "grade_id": 5}, {"id": 30, "name": "الدراسات الاجتماعية", "grade_id": 5}, {"id": 31, "name": "الرياضيات", "grade_id": 6}, {"id": 32, "name": "اللغة العربية", "grade_id": 6}, {"id": 33, "name": "العلوم", "grade_id": 6}, {"id": 34, "name": "اللغة الإنجليزية", "grade_id": 6}, {"id": 35, "name": "التربية الإسلامية", "grade_id": 6}, {"id": 36, "name": "الدراسات الاجتماعية", "grade_id": 6}, {"id": 37, "name": "الرياضيات", "grade_id": 7}, {"id": 38, "name": "اللغة العربية", "grade_id": 7}, {"id": 39, "name": "العلوم", "grade_id": 7}, {"id": 40, "name": "اللغة الإنجليزية", "grade_id": 7}, {"id": 41, "name": "التربية الإسلامية", "grade_id": 7}, {"id": 42, "name": "الدراسات الاجتماعية", "grade_id": 7}, {"id": 43, "name": "الرياضيات", "grade_id": 8}, {"id": 44, "name": "اللغة العربية", "grade_id": 8}, {"id": 45, "name": "العلوم", "grade_id": 8}, {"id": 46, "name": "اللغة الإنجليزية", "grade_id": 8}, {"id": 47, "name": "التربية الإسلامية", "grade_id": 8}, {"id": 48, "name": "الدراسات الاجتماعية", "grade_id": 8}, {"id": 49, "name": "الرياضيات", "grade_id": 9}, {"id": 50, "name": "اللغة العربية", "grade_id": 9}, {"id": 51, "name": "العلوم", "grade_id": 9}, {"id": 52, "name": "اللغة الإنجليزية", "grade_id": 9}, {"id": 53, "name": "التربية الإسلامية", "grade_id": 9}, {"id": 54, "name": "الدراسات الاجتماعية", "grade_id": 9}, {"id": 55, "name": "الرياضيات", "grade_id": 10}, {"id": 56, "name": "اللغة العربية", "grade_id": 10}, {"id": 57, "name": "العلوم", "grade_id": 10}, {"id": 58, "name": "اللغة الإنجليزية", "grade_id": 10}, {"id": 59, "name": "التربية الإسلامية", "grade_id": 10}, {"id": 60, "name": "الدراسات الاجتماعية", "grade_id": 10}, {"id": 61, "name": "الرياضيات", "grade_id": 11}, {"id": 62, "name": "اللغة العربية", "grade_id": 11}, {"id": 63, "name": "العلوم", "grade_id": 11}, {"id": 64, "name": "اللغة الإنجليزية", "grade_id": 11}, {"id": 65, "name": "التربية الإسلامية", "grade_id": 11}, {"id": 66, "name": "الدراسات الاجتماعية", "grade_id": 11}, {"id": 67, "name": "الرياضيات", "grade_id": 12}, {"id": 68, "name": "اللغة العربية", "grade_id": 12}, {"id": 69, "name": "العلوم", "grade_id": 12}, {"id": 70, "name": "اللغة الإنجليزية", "grade_id": 12}, {"id": 71, "name": "التربية الإسلامية", "grade_id": 12}, {"id": 72, "name": "الدراسات الاجتماعية", "grade_id": 12}, {"id": 73, "name": "الرياضيات", "grade_id": 13}, {"id": 74, "name": "اللغة العربية", "grade_id": 13}, {"id": 75, "name": "العلوم", "grade_id": 13}, {"id": 76, "name": "اللغة الإنجليزية", "grade_id": 13}, {"id": 77, "name": "التربية الإسلامية", "grade_id": 13}, {"id": 78, "name": "الدراسات الاجتماعية", "grade_id": 13}, {"id": 79, "name": "الرياضيات", "grade_id": 14}, {"id": 80, "name": "اللغة العربية", "grade_id": 14}, {"id": 81, "name": "العلوم", "grade_id": 14}, {"id": 82, "name": "اللغة الإنجليزية", "grade_id": 14}, {"id": 83, "name": "التربية الإسلامية", "grade_id": 14}, {"id": 84, "name": "الدراسات الاجتماعية", "grade_id": 14}, {"id": 85, "name": "الرياضيات", "grade_id": 15}, {"id": 86, "name": "اللغة العربية", "grade_id": 15}, {"id": 87, "name": "العلوم", "grade_id": 15}, {"id": 88, "name": "اللغة الإنجليزية", "grade_id": 15}, {"id": 89, "name": "التربية الإسلامية", "grade_id": 15}, {"id": 90, "name": "الدراسات الاجتماعية", "grade_id": 15}, {"id": 91, "name": "الرياضيات", "grade_id": 16}, {"id": 92, "name": "اللغة العربية", "grade_id": 16}, {"id": 93, "name": "العلوم", "grade_id": 16}, {"id": 94, "name": "اللغة الإنجليزية", "grade_id": 16}, {"id": 95, "name": "التربية الإسلامية", "grade_id": 16}, {"id": 96, "name": "الدراسات الاجتماعية", "grade_id": 16}, {"id": 97, "name": "الرياضيات", "grade_id": 17}, {"id": 98, "name": "اللغة العربية", "grade_id": 17}, {"id": 99, "name": "العلوم", "grade_id": 17}, {"id": 100, "name": "اللغة الإنجليزية", "grade_id": 17}, {"id": 101, "name": "التربية الإسلامية", "grade_id": 17}, {"id": 102, "name": "الدراسات الاجتماعية", "grade_id": 17}, {"id": 103, "name": "الرياضيات", "grade_id": 18}, {"id": 104, "name": "اللغة العربية", "grade_id": 18}, {"id": 105, "name": "العلوم", "grade_id": 18}, {"id": 106, "name": "اللغة الإنجليزية", "grade_id": 18}, {"id": 107, "name": "التربية الإسلامية", "grade_id": 18}, {"id": 108, "name": "الدراسات الاجتماعية", "grade_id": 18}, {"id": 109, "name": "الفيزياء", "grade_id": 19}, {"id": 110, "name": "الكيمياء", "grade_id": 19}, {"id": 111, "name": "الأحياء", "grade_id": 19}, {"id": 112, "name": "الرياضيات", "grade_id": 19}, {"id": 113, "name": "اللغة العربية", "grade_id": 19}, {"id": 114, "name": "اللغة الإنجليزية", "grade_id": 19}, {"id": 115, "name": "اللغة الإنجليزية", "grade_id": 20}, {"id": 116, "name": "اللغة العربية", "grade_id": 20}, {"id": 117, "name": "الفلسفة", "grade_id": 20}, {"id": 118, "name": "الاجتماعيات", "grade_id": 20}, {"id": 119, "name": "الفيزياء", "grade_id": 21}, {"id": 120, "name": "الكيمياء", "grade_id": 21}, {"id": 121, "name": "الأحياء", "grade_id": 21}, {"id": 122, "name": "الرياضيات", "grade_id": 21}, {"id": 123, "name": "اللغة العربية", "grade_id": 21}, {"id": 124, "name": "اللغة الإنجليزية", "grade_id": 21}, {"id": 125, "name": "اللغة الإنجليزية", "grade_id": 22}, {"id": 126, "name": "اللغة العربية", "grade_id": 22}, {"id": 127, "name": "الفلسفة", "grade_id": 22}, {"id": 128, "name": "الاجتماعيات", "grade_id": 22}, {"id": 129, "name": "الرياضيات", "grade_id": 23}, {"id": 130, "name": "اللغة الإنجليزية", "grade_id": 23}, {"id": 131, "name": "اللغة العربية", "grade_id": 23}, {"id": 132, "name": "الأحياء", "grade_id": 23}, {"id": 133, "name": "الفيزياء", "grade_id": 23}, {"id": 134, "name": "الكيمياء", "grade_id": 23}, {"id": 135, "name": "الفيزياء", "grade_id": 24}, {"id": 136, "name": "الكيمياء", "grade_id": 24}, {"id": 137, "name": "الأحياء", "grade_id": 24}, {"id": 138, "name": "الرياضيات", "grade_id": 24}, {"id": 139, "name": "اللغة العربية", "grade_id": 24}, {"id": 140, "name": "اللغة الإنجليزية", "grade_id": 24}, {"id": 141, "name": "اللغة الإنجليزية", "grade_id": 25}, {"id": 142, "name": "اللغة العربية", "grade_id": 25}, {"id": 143, "name": "الفلسفة", "grade_id": 25}, {"id": 144, "name": "الاجتماعيات", "grade_id": 25}, {"id": 145, "name": "الفيزياء", "grade_id": 26}, {"id": 146, "name": "الكيمياء", "grade_id": 26}, {"id": 147, "name": "الأحياء", "grade_id": 26}, {"id": 148, "name": "الرياضيات", "grade_id": 26}, {"id": 149, "name": "اللغة العربية", "grade_id": 26}, {"id": 150, "name": "اللغة الإنجليزية", "grade_id": 26}, {"id": 151, "name": "اللغة الإنجليزية", "grade_id": 27}, {"id": 152, "name": "اللغة العربية", "grade_id": 27}, {"id": 153, "name": "الفلسفة", "grade_id": 27}, {"id": 154, "name": "الاجتماعيات", "grade_id": 27}, {"id": 155, "name": "الرياضيات", "grade_id": 28}, {"id": 156, "name": "اللغة الإنجليزية", "grade_id": 28}, {"id": 157, "name": "اللغة العربية", "grade_id": 28}, {"id": 158, "name": "الأحياء", "grade_id": 28}, {"id": 159, "name": "الفيزياء", "grade_id": 28}, {"id": 160, "name": "الكيمياء", "grade_id": 28}];
-    const optionsRaw     = [{"id": 1, "name": "مذكرات"}, {"id": 2, "name": "اختبارات"}, {"id": 3, "name": "فيديوهات"}];
-    const childrenRaw    = [{"id": 1, "name": "مذكرات نيو", "option_id": 1}, {"id": 2, "name": "مذكرات أخرى", "option_id": 1}, {"id": 3, "name": "قصير أول", "option_id": 2}, {"id": 4, "name": "قصير ثاني", "option_id": 2}, {"id": 5, "name": "فاينل", "option_id": 2}, {"id": 6, "name": "أوراق عمل", "option_id": 2}, {"id": 7, "name": "مراجعة", "option_id": 3}, {"id": 8, "name": "حل اختبارات", "option_id": 3}];
-    const subchildrenRaw = [{"id": 1, "name": "المذكرة الشاملة", "child_id": 1}, {"id": 2, "name": "ملخصات", "child_id": 1}];
-    const subjOptRaw     = [{"subject_id": 1, "option_id": 1}, {"subject_id": 1, "option_id": 2}, {"subject_id": 1, "option_id": 3}, {"subject_id": 2, "option_id": 1}, {"subject_id": 2, "option_id": 2}, {"subject_id": 2, "option_id": 3}, {"subject_id": 3, "option_id": 1}, {"subject_id": 3, "option_id": 2}, {"subject_id": 3, "option_id": 3}, {"subject_id": 4, "option_id": 1}, {"subject_id": 4, "option_id": 2}, {"subject_id": 4, "option_id": 3}, {"subject_id": 5, "option_id": 1}, {"subject_id": 5, "option_id": 2}, {"subject_id": 5, "option_id": 3}, {"subject_id": 6, "option_id": 1}, {"subject_id": 6, "option_id": 2}, {"subject_id": 6, "option_id": 3}, {"subject_id": 7, "option_id": 1}, {"subject_id": 7, "option_id": 2}, {"subject_id": 7, "option_id": 3}, {"subject_id": 8, "option_id": 1}, {"subject_id": 8, "option_id": 2}, {"subject_id": 8, "option_id": 3}, {"subject_id": 9, "option_id": 1}, {"subject_id": 9, "option_id": 2}, {"subject_id": 9, "option_id": 3}, {"subject_id": 10, "option_id": 1}, {"subject_id": 10, "option_id": 2}, {"subject_id": 10, "option_id": 3}, {"subject_id": 11, "option_id": 1}, {"subject_id": 11, "option_id": 2}, {"subject_id": 11, "option_id": 3}, {"subject_id": 12, "option_id": 1}, {"subject_id": 12, "option_id": 2}, {"subject_id": 12, "option_id": 3}, {"subject_id": 13, "option_id": 1}, {"subject_id": 13, "option_id": 2}, {"subject_id": 13, "option_id": 3}, {"subject_id": 14, "option_id": 1}, {"subject_id": 14, "option_id": 2}, {"subject_id": 14, "option_id": 3}, {"subject_id": 15, "option_id": 1}, {"subject_id": 15, "option_id": 2}, {"subject_id": 15, "option_id": 3}, {"subject_id": 16, "option_id": 1}, {"subject_id": 16, "option_id": 2}, {"subject_id": 16, "option_id": 3}, {"subject_id": 17, "option_id": 1}, {"subject_id": 17, "option_id": 2}, {"subject_id": 17, "option_id": 3}, {"subject_id": 18, "option_id": 1}, {"subject_id": 18, "option_id": 2}, {"subject_id": 18, "option_id": 3}, {"subject_id": 19, "option_id": 1}, {"subject_id": 19, "option_id": 2}, {"subject_id": 19, "option_id": 3}, {"subject_id": 20, "option_id": 1}, {"subject_id": 20, "option_id": 2}, {"subject_id": 20, "option_id": 3}, {"subject_id": 21, "option_id": 1}, {"subject_id": 21, "option_id": 2}, {"subject_id": 21, "option_id": 3}, {"subject_id": 22, "option_id": 1}, {"subject_id": 22, "option_id": 2}, {"subject_id": 22, "option_id": 3}, {"subject_id": 23, "option_id": 1}, {"subject_id": 23, "option_id": 2}, {"subject_id": 23, "option_id": 3}, {"subject_id": 24, "option_id": 1}, {"subject_id": 24, "option_id": 2}, {"subject_id": 24, "option_id": 3}, {"subject_id": 25, "option_id": 1}, {"subject_id": 25, "option_id": 2}, {"subject_id": 25, "option_id": 3}, {"subject_id": 26, "option_id": 1}, {"subject_id": 26, "option_id": 2}, {"subject_id": 26, "option_id": 3}, {"subject_id": 27, "option_id": 1}, {"subject_id": 27, "option_id": 2}, {"subject_id": 27, "option_id": 3}, {"subject_id": 28, "option_id": 1}, {"subject_id": 28, "option_id": 2}, {"subject_id": 28, "option_id": 3}, {"subject_id": 29, "option_id": 1}, {"subject_id": 29, "option_id": 2}, {"subject_id": 29, "option_id": 3}, {"subject_id": 30, "option_id": 1}, {"subject_id": 30, "option_id": 2}, {"subject_id": 30, "option_id": 3}, {"subject_id": 31, "option_id": 1}, {"subject_id": 31, "option_id": 2}, {"subject_id": 31, "option_id": 3}, {"subject_id": 32, "option_id": 1}, {"subject_id": 32, "option_id": 2}, {"subject_id": 32, "option_id": 3}, {"subject_id": 33, "option_id": 1}, {"subject_id": 33, "option_id": 2}, {"subject_id": 33, "option_id": 3}, {"subject_id": 34, "option_id": 1}, {"subject_id": 34, "option_id": 2}, {"subject_id": 34, "option_id": 3}, {"subject_id": 35, "option_id": 1}, {"subject_id": 35, "option_id": 2}, {"subject_id": 35, "option_id": 3}, {"subject_id": 36, "option_id": 1}, {"subject_id": 36, "option_id": 2}, {"subject_id": 36, "option_id": 3}, {"subject_id": 37, "option_id": 1}, {"subject_id": 37, "option_id": 2}, {"subject_id": 37, "option_id": 3}, {"subject_id": 38, "option_id": 1}, {"subject_id": 38, "option_id": 2}, {"subject_id": 38, "option_id": 3}, {"subject_id": 39, "option_id": 1}, {"subject_id": 39, "option_id": 2}, {"subject_id": 39, "option_id": 3}, {"subject_id": 40, "option_id": 1}, {"subject_id": 40, "option_id": 2}, {"subject_id": 40, "option_id": 3}, {"subject_id": 41, "option_id": 1}, {"subject_id": 41, "option_id": 2}, {"subject_id": 41, "option_id": 3}, {"subject_id": 42, "option_id": 1}, {"subject_id": 42, "option_id": 2}, {"subject_id": 42, "option_id": 3}, {"subject_id": 43, "option_id": 1}, {"subject_id": 43, "option_id": 2}, {"subject_id": 43, "option_id": 3}, {"subject_id": 44, "option_id": 1}, {"subject_id": 44, "option_id": 2}, {"subject_id": 44, "option_id": 3}, {"subject_id": 45, "option_id": 1}, {"subject_id": 45, "option_id": 2}, {"subject_id": 45, "option_id": 3}, {"subject_id": 46, "option_id": 1}, {"subject_id": 46, "option_id": 2}, {"subject_id": 46, "option_id": 3}, {"subject_id": 47, "option_id": 1}, {"subject_id": 47, "option_id": 2}, {"subject_id": 47, "option_id": 3}, {"subject_id": 48, "option_id": 1}, {"subject_id": 48, "option_id": 2}, {"subject_id": 48, "option_id": 3}, {"subject_id": 49, "option_id": 1}, {"subject_id": 49, "option_id": 2}, {"subject_id": 49, "option_id": 3}, {"subject_id": 50, "option_id": 1}, {"subject_id": 50, "option_id": 2}, {"subject_id": 50, "option_id": 3}, {"subject_id": 51, "option_id": 1}, {"subject_id": 51, "option_id": 2}, {"subject_id": 51, "option_id": 3}, {"subject_id": 52, "option_id": 1}, {"subject_id": 52, "option_id": 2}, {"subject_id": 52, "option_id": 3}, {"subject_id": 53, "option_id": 1}, {"subject_id": 53, "option_id": 2}, {"subject_id": 53, "option_id": 3}, {"subject_id": 54, "option_id": 1}, {"subject_id": 54, "option_id": 2}, {"subject_id": 54, "option_id": 3}, {"subject_id": 55, "option_id": 1}, {"subject_id": 55, "option_id": 2}, {"subject_id": 55, "option_id": 3}, {"subject_id": 56, "option_id": 1}, {"subject_id": 56, "option_id": 2}, {"subject_id": 56, "option_id": 3}, {"subject_id": 57, "option_id": 1}, {"subject_id": 57, "option_id": 2}, {"subject_id": 57, "option_id": 3}, {"subject_id": 58, "option_id": 1}, {"subject_id": 58, "option_id": 2}, {"subject_id": 58, "option_id": 3}, {"subject_id": 59, "option_id": 1}, {"subject_id": 59, "option_id": 2}, {"subject_id": 59, "option_id": 3}, {"subject_id": 60, "option_id": 1}, {"subject_id": 60, "option_id": 2}, {"subject_id": 60, "option_id": 3}, {"subject_id": 61, "option_id": 1}, {"subject_id": 61, "option_id": 2}, {"subject_id": 61, "option_id": 3}, {"subject_id": 62, "option_id": 1}, {"subject_id": 62, "option_id": 2}, {"subject_id": 62, "option_id": 3}, {"subject_id": 63, "option_id": 1}, {"subject_id": 63, "option_id": 2}, {"subject_id": 63, "option_id": 3}, {"subject_id": 64, "option_id": 1}, {"subject_id": 64, "option_id": 2}, {"subject_id": 64, "option_id": 3}, {"subject_id": 65, "option_id": 1}, {"subject_id": 65, "option_id": 2}, {"subject_id": 65, "option_id": 3}, {"subject_id": 66, "option_id": 1}, {"subject_id": 66, "option_id": 2}, {"subject_id": 66, "option_id": 3}, {"subject_id": 67, "option_id": 1}, {"subject_id": 67, "option_id": 2}, {"subject_id": 67, "option_id": 3}, {"subject_id": 68, "option_id": 1}, {"subject_id": 68, "option_id": 2}, {"subject_id": 68, "option_id": 3}, {"subject_id": 69, "option_id": 1}, {"subject_id": 69, "option_id": 2}, {"subject_id": 69, "option_id": 3}, {"subject_id": 70, "option_id": 1}, {"subject_id": 70, "option_id": 2}, {"subject_id": 70, "option_id": 3}, {"subject_id": 71, "option_id": 1}, {"subject_id": 71, "option_id": 2}, {"subject_id": 71, "option_id": 3}, {"subject_id": 72, "option_id": 1}, {"subject_id": 72, "option_id": 2}, {"subject_id": 72, "option_id": 3}, {"subject_id": 73, "option_id": 1}, {"subject_id": 73, "option_id": 2}, {"subject_id": 73, "option_id": 3}, {"subject_id": 74, "option_id": 1}, {"subject_id": 74, "option_id": 2}, {"subject_id": 74, "option_id": 3}, {"subject_id": 75, "option_id": 1}, {"subject_id": 75, "option_id": 2}, {"subject_id": 75, "option_id": 3}, {"subject_id": 76, "option_id": 1}, {"subject_id": 76, "option_id": 2}, {"subject_id": 76, "option_id": 3}, {"subject_id": 77, "option_id": 1}, {"subject_id": 77, "option_id": 2}, {"subject_id": 77, "option_id": 3}, {"subject_id": 78, "option_id": 1}, {"subject_id": 78, "option_id": 2}, {"subject_id": 78, "option_id": 3}, {"subject_id": 79, "option_id": 1}, {"subject_id": 79, "option_id": 2}, {"subject_id": 79, "option_id": 3}, {"subject_id": 80, "option_id": 1}, {"subject_id": 80, "option_id": 2}, {"subject_id": 80, "option_id": 3}, {"subject_id": 81, "option_id": 1}, {"subject_id": 81, "option_id": 2}, {"subject_id": 81, "option_id": 3}, {"subject_id": 82, "option_id": 1}, {"subject_id": 82, "option_id": 2}, {"subject_id": 82, "option_id": 3}, {"subject_id": 83, "option_id": 1}, {"subject_id": 83, "option_id": 2}, {"subject_id": 83, "option_id": 3}, {"subject_id": 84, "option_id": 1}, {"subject_id": 84, "option_id": 2}, {"subject_id": 84, "option_id": 3}, {"subject_id": 85, "option_id": 1}, {"subject_id": 85, "option_id": 2}, {"subject_id": 85, "option_id": 3}, {"subject_id": 86, "option_id": 1}, {"subject_id": 86, "option_id": 2}, {"subject_id": 86, "option_id": 3}, {"subject_id": 87, "option_id": 1}, {"subject_id": 87, "option_id": 2}, {"subject_id": 87, "option_id": 3}, {"subject_id": 88, "option_id": 1}, {"subject_id": 88, "option_id": 2}, {"subject_id": 88, "option_id": 3}, {"subject_id": 89, "option_id": 1}, {"subject_id": 89, "option_id": 2}, {"subject_id": 89, "option_id": 3}, {"subject_id": 90, "option_id": 1}, {"subject_id": 90, "option_id": 2}, {"subject_id": 90, "option_id": 3}, {"subject_id": 91, "option_id": 1}, {"subject_id": 91, "option_id": 2}, {"subject_id": 91, "option_id": 3}, {"subject_id": 92, "option_id": 1}, {"subject_id": 92, "option_id": 2}, {"subject_id": 92, "option_id": 3}, {"subject_id": 93, "option_id": 1}, {"subject_id": 93, "option_id": 2}, {"subject_id": 93, "option_id": 3}, {"subject_id": 94, "option_id": 1}, {"subject_id": 94, "option_id": 2}, {"subject_id": 94, "option_id": 3}, {"subject_id": 95, "option_id": 1}, {"subject_id": 95, "option_id": 2}, {"subject_id": 95, "option_id": 3}, {"subject_id": 96, "option_id": 1}, {"subject_id": 96, "option_id": 2}, {"subject_id": 96, "option_id": 3}, {"subject_id": 97, "option_id": 1}, {"subject_id": 97, "option_id": 2}, {"subject_id": 97, "option_id": 3}, {"subject_id": 98, "option_id": 1}, {"subject_id": 98, "option_id": 2}, {"subject_id": 98, "option_id": 3}, {"subject_id": 99, "option_id": 1}, {"subject_id": 99, "option_id": 2}, {"subject_id": 99, "option_id": 3}, {"subject_id": 100, "option_id": 1}, {"subject_id": 100, "option_id": 2}, {"subject_id": 100, "option_id": 3}, {"subject_id": 101, "option_id": 1}, {"subject_id": 101, "option_id": 2}, {"subject_id": 101, "option_id": 3}, {"subject_id": 102, "option_id": 1}, {"subject_id": 102, "option_id": 2}, {"subject_id": 102, "option_id": 3}, {"subject_id": 103, "option_id": 1}, {"subject_id": 103, "option_id": 2}, {"subject_id": 103, "option_id": 3}, {"subject_id": 104, "option_id": 1}, {"subject_id": 104, "option_id": 2}, {"subject_id": 104, "option_id": 3}, {"subject_id": 105, "option_id": 1}, {"subject_id": 105, "option_id": 2}, {"subject_id": 105, "option_id": 3}, {"subject_id": 106, "option_id": 1}, {"subject_id": 106, "option_id": 2}, {"subject_id": 106, "option_id": 3}, {"subject_id": 107, "option_id": 1}, {"subject_id": 107, "option_id": 2}, {"subject_id": 107, "option_id": 3}, {"subject_id": 108, "option_id": 1}, {"subject_id": 108, "option_id": 2}, {"subject_id": 108, "option_id": 3}, {"subject_id": 109, "option_id": 1}, {"subject_id": 109, "option_id": 2}, {"subject_id": 109, "option_id": 3}, {"subject_id": 110, "option_id": 1}, {"subject_id": 110, "option_id": 2}, {"subject_id": 110, "option_id": 3}, {"subject_id": 111, "option_id": 1}, {"subject_id": 111, "option_id": 2}, {"subject_id": 111, "option_id": 3}, {"subject_id": 112, "option_id": 1}, {"subject_id": 112, "option_id": 2}, {"subject_id": 112, "option_id": 3}, {"subject_id": 113, "option_id": 1}, {"subject_id": 113, "option_id": 2}, {"subject_id": 113, "option_id": 3}, {"subject_id": 114, "option_id": 1}, {"subject_id": 114, "option_id": 2}, {"subject_id": 114, "option_id": 3}, {"subject_id": 115, "option_id": 1}, {"subject_id": 115, "option_id": 2}, {"subject_id": 115, "option_id": 3}, {"subject_id": 116, "option_id": 1}, {"subject_id": 116, "option_id": 2}, {"subject_id": 116, "option_id": 3}, {"subject_id": 117, "option_id": 1}, {"subject_id": 117, "option_id": 2}, {"subject_id": 117, "option_id": 3}, {"subject_id": 118, "option_id": 1}, {"subject_id": 118, "option_id": 2}, {"subject_id": 118, "option_id": 3}, {"subject_id": 119, "option_id": 1}, {"subject_id": 119, "option_id": 2}, {"subject_id": 119, "option_id": 3}, {"subject_id": 120, "option_id": 1}, {"subject_id": 120, "option_id": 2}, {"subject_id": 120, "option_id": 3}, {"subject_id": 121, "option_id": 1}, {"subject_id": 121, "option_id": 2}, {"subject_id": 121, "option_id": 3}, {"subject_id": 122, "option_id": 1}, {"subject_id": 122, "option_id": 2}, {"subject_id": 122, "option_id": 3}, {"subject_id": 123, "option_id": 1}, {"subject_id": 123, "option_id": 2}, {"subject_id": 123, "option_id": 3}, {"subject_id": 124, "option_id": 1}, {"subject_id": 124, "option_id": 2}, {"subject_id": 124, "option_id": 3}, {"subject_id": 125, "option_id": 1}, {"subject_id": 125, "option_id": 2}, {"subject_id": 125, "option_id": 3}, {"subject_id": 126, "option_id": 1}, {"subject_id": 126, "option_id": 2}, {"subject_id": 126, "option_id": 3}, {"subject_id": 127, "option_id": 1}, {"subject_id": 127, "option_id": 2}, {"subject_id": 127, "option_id": 3}, {"subject_id": 128, "option_id": 1}, {"subject_id": 128, "option_id": 2}, {"subject_id": 128, "option_id": 3}, {"subject_id": 129, "option_id": 1}, {"subject_id": 129, "option_id": 2}, {"subject_id": 129, "option_id": 3}, {"subject_id": 130, "option_id": 1}, {"subject_id": 130, "option_id": 2}, {"subject_id": 130, "option_id": 3}, {"subject_id": 131, "option_id": 1}, {"subject_id": 131, "option_id": 2}, {"subject_id": 131, "option_id": 3}, {"subject_id": 132, "option_id": 1}, {"subject_id": 132, "option_id": 2}, {"subject_id": 132, "option_id": 3}, {"subject_id": 133, "option_id": 1}, {"subject_id": 133, "option_id": 2}, {"subject_id": 133, "option_id": 3}, {"subject_id": 134, "option_id": 1}, {"subject_id": 134, "option_id": 2}, {"subject_id": 134, "option_id": 3}, {"subject_id": 135, "option_id": 1}, {"subject_id": 135, "option_id": 2}, {"subject_id": 135, "option_id": 3}, {"subject_id": 136, "option_id": 1}, {"subject_id": 136, "option_id": 2}, {"subject_id": 136, "option_id": 3}, {"subject_id": 137, "option_id": 1}, {"subject_id": 137, "option_id": 2}, {"subject_id": 137, "option_id": 3}, {"subject_id": 138, "option_id": 1}, {"subject_id": 138, "option_id": 2}, {"subject_id": 138, "option_id": 3}, {"subject_id": 139, "option_id": 1}, {"subject_id": 139, "option_id": 2}, {"subject_id": 139, "option_id": 3}, {"subject_id": 140, "option_id": 1}, {"subject_id": 140, "option_id": 2}, {"subject_id": 140, "option_id": 3}, {"subject_id": 141, "option_id": 1}, {"subject_id": 141, "option_id": 2}, {"subject_id": 141, "option_id": 3}, {"subject_id": 142, "option_id": 1}, {"subject_id": 142, "option_id": 2}, {"subject_id": 142, "option_id": 3}, {"subject_id": 143, "option_id": 1}, {"subject_id": 143, "option_id": 2}, {"subject_id": 143, "option_id": 3}, {"subject_id": 144, "option_id": 1}, {"subject_id": 144, "option_id": 2}, {"subject_id": 144, "option_id": 3}, {"subject_id": 145, "option_id": 1}, {"subject_id": 145, "option_id": 2}, {"subject_id": 145, "option_id": 3}, {"subject_id": 146, "option_id": 1}, {"subject_id": 146, "option_id": 2}, {"subject_id": 146, "option_id": 3}, {"subject_id": 147, "option_id": 1}, {"subject_id": 147, "option_id": 2}, {"subject_id": 147, "option_id": 3}, {"subject_id": 148, "option_id": 1}, {"subject_id": 148, "option_id": 2}, {"subject_id": 148, "option_id": 3}, {"subject_id": 149, "option_id": 1}, {"subject_id": 149, "option_id": 2}, {"subject_id": 149, "option_id": 3}, {"subject_id": 150, "option_id": 1}, {"subject_id": 150, "option_id": 2}, {"subject_id": 150, "option_id": 3}, {"subject_id": 151, "option_id": 1}, {"subject_id": 151, "option_id": 2}, {"subject_id": 151, "option_id": 3}, {"subject_id": 152, "option_id": 1}, {"subject_id": 152, "option_id": 2}, {"subject_id": 152, "option_id": 3}, {"subject_id": 153, "option_id": 1}, {"subject_id": 153, "option_id": 2}, {"subject_id": 153, "option_id": 3}, {"subject_id": 154, "option_id": 1}, {"subject_id": 154, "option_id": 2}, {"subject_id": 154, "option_id": 3}, {"subject_id": 155, "option_id": 1}, {"subject_id": 155, "option_id": 2}, {"subject_id": 155, "option_id": 3}, {"subject_id": 156, "option_id": 1}, {"subject_id": 156, "option_id": 2}, {"subject_id": 156, "option_id": 3}, {"subject_id": 157, "option_id": 1}, {"subject_id": 157, "option_id": 2}, {"subject_id": 157, "option_id": 3}, {"subject_id": 158, "option_id": 1}, {"subject_id": 158, "option_id": 2}, {"subject_id": 158, "option_id": 3}, {"subject_id": 159, "option_id": 1}, {"subject_id": 159, "option_id": 2}, {"subject_id": 159, "option_id": 3}, {"subject_id": 160, "option_id": 1}, {"subject_id": 160, "option_id": 2}, {"subject_id": 160, "option_id": 3}];
+// --- Data injected from FastAPI ---
+const stages = JSON.parse('__STAGES__');
+const terms = JSON.parse('__TERMS__');
+const grades = JSON.parse('__GRADES__');
+const subjects = JSON.parse('__SUBJECTS__');
+const options = JSON.parse('__OPTIONS__');
+const children = JSON.parse('__CHILDREN__');
+const subchildren = JSON.parse('__SUBCHILDREN__');
+const subjectOptionMap = JSON.parse('__SUBJOPT__');
 
-    // --- CORRECTED SCRIPT ---
-    // The data above is already in the correct format (array of objects), so we don't need to transform it.
-    // We will use the '...Raw' variables directly.
+// --- DOM Elements ---
+const stageSelect = document.getElementById('stage_id');
+const termSelect = document.getElementById('term_id');
+const gradeSelect = document.getElementById('grade_id');
+const subjectSelect = document.getElementById('subject_id');
+const optionSelect = document.getElementById('option_id');
+const childSelect = document.getElementById('child_id');
+const subchildSelect = document.getElementById('subchild_id');
 
-    function fill(sel, arr, placeholder) {
-        sel.innerHTML = ""; // Clear previous options
-
-        const first = document.createElement("option");
-        first.value = "";
-        first.textContent = placeholder;
-        sel.appendChild(first);
-
-        arr.forEach(item => {
-            const opt = document.createElement("option");
-            opt.value = item.id;
-            opt.textContent = item.name;
-            sel.appendChild(opt);
+// --- Helper function to populate a dropdown ---
+function populateDropdown(selectElement, data, placeholder = "اختر...") {
+    selectElement.innerHTML = `<option value="">${placeholder}</option>`;
+    if (data) {
+        data.forEach(item => {
+            const option = new Option(item.name, item.id);
+            selectElement.add(option);
         });
     }
+}
 
-    const s  = document.getElementById("stage");
-    const t  = document.getElementById("term");
-    const g  = document.getElementById("grade");
-    const sb = document.getElementById("subject");
-    const op = document.getElementById("option");
-    const ch = document.getElementById("child");
-    const sc = document.getElementById("subchild");
+// --- Event Listeners for Cascading Dropdowns ---
 
-    // أول تحميل
-    fill(s, stagesRaw, "اختر المرحلة");
+stageSelect.addEventListener('change', () => {
+    const selectedStageId = stageSelect.value;
+    termSelect.disabled = !selectedStageId;
+    populateDropdown(termSelect, terms.filter(t => t.stage_id == selectedStageId));
+    // Reset subsequent dropdowns
+    populateDropdown(gradeSelect); gradeSelect.disabled = true;
+    populateDropdown(subjectSelect); subjectSelect.disabled = true;
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-    s.onchange = function () {
-        const sid = parseInt(s.value || "0");
-        fill(t, termsRaw.filter(x => x.stage_id === sid), "اختر الفصل");
-        fill(g, [], "اختر الصف");
-        fill(sb, [], "اختر المادة");
-        fill(op, [], "اختر النوع");
-        fill(ch, [], "اختر القسم");
-        sc.innerHTML = "<option value=''>لا يوجد</option>";
-    };
+termSelect.addEventListener('change', () => {
+    const selectedTermId = termSelect.value;
+    gradeSelect.disabled = !selectedTermId;
+    populateDropdown(gradeSelect, grades.filter(g => g.term_id == selectedTermId));
+    // Reset subsequent dropdowns
+    populateDropdown(subjectSelect); subjectSelect.disabled = true;
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-    t.onchange = function () {
-        const tid = parseInt(t.value || "0");
-        fill(g, gradesRaw.filter(x => x.term_id === tid), "اختر الصف");
-        fill(sb, [], "اختر المادة");
-        fill(op, [], "اختر النوع");
-        fill(ch, [], "اختر القسم");
-        sc.innerHTML = "<option value=''>لا يوجد</option>";
-    };
+gradeSelect.addEventListener('change', () => {
+    const selectedGradeId = gradeSelect.value;
+    subjectSelect.disabled = !selectedGradeId;
+    populateDropdown(subjectSelect, subjects.filter(s => s.grade_id == selectedGradeId));
+    // Reset subsequent dropdowns
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-    g.onchange = function () {
-        const gid = parseInt(g.value || "0");
-        fill(sb, subjectsRaw.filter(x => x.grade_id === gid), "اختر المادة");
-        fill(op, [], "اختر النوع");
-        fill(ch, [], "اختر القسم");
-        sc.innerHTML = "<option value=''>لا يوجد</option>";
-    };
+subjectSelect.addEventListener('change', () => {
+    const selectedSubjectId = subjectSelect.value;
+    if (!selectedSubjectId) {
+        optionSelect.disabled = true;
+        return;
+    }
+    
+    const optionIds = subjectOptionMap.filter(map => map.subject_id == selectedSubjectId).map(map => map.option_id);
+    const availableOptions = options.filter(o => optionIds.includes(o.id));
+    
+    optionSelect.disabled = availableOptions.length === 0;
+    populateDropdown(optionSelect, availableOptions);
+    // Reset subsequent dropdowns
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-    sb.onchange = function () {
-        const sid = parseInt(sb.value || "0");
-        const allowed = subjOptRaw
-            .filter(x => x.subject_id === sid)
-            .map(x => x.option_id);
+optionSelect.addEventListener('change', () => {
+    const selectedOptionId = optionSelect.value;
+    childSelect.disabled = !selectedOptionId;
+    populateDropdown(childSelect, children.filter(c => c.option_id == selectedOptionId));
+    // Reset subsequent dropdown
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        fill(op, optionsRaw.filter(x => allowed.includes(x.id)), "اختر النوع");
-        fill(ch, [], "اختر القسم");
-        sc.innerHTML = "<option value=''>لا يوجد</option>";
-    };
+childSelect.addEventListener('change', () => {
+    const selectedChildId = childSelect.value;
+    const availableSubchildren = subchildren.filter(sc => sc.child_id == selectedChildId);
+    subchildSelect.disabled = availableSubchildren.length === 0;
+    populateDropdown(subchildSelect, availableSubchildren, "لا يوجد أقسام فرعية");
+});
 
-    op.onchange = function () {
-        const oid = parseInt(op.value || "0");
-        fill(ch, childrenRaw.filter(x => x.option_id === oid), "اختر القسم");
-        sc.innerHTML = "<option value=''>لا يوجد</option>";
-    };
 
-    ch.onchange = function () {
-        const cid = parseInt(ch.value || "0");
-        fill(sc, subchildrenRaw.filter(x => x.child_id === cid), "لا يوجد");
-    };
+// --- Initial Population ---
+document.addEventListener('DOMContentLoaded', () => {
+    populateDropdown(stageSelect, stages);
+});
 </script>
+
 </body>
 </html>
