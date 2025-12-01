@@ -2,220 +2,201 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>لوحة التحكم - منصة نيو أكاديمي التعليمية</title>
-
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-          rel="stylesheet">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة التحكم - منصة نيو أكاديمي</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            background: #f7f7f7;
-            font-family: "Cairo", sans-serif;
-        }
-        .card {
-            border-radius: 12px;
-        }
-        table td, table th {
-            vertical-align: middle;
-            text-align: center;
-        }
-        .form-section {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-        }
-        .title {
-            font-weight: 700;
-            font-size: 22px;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .container-fluid { max-width: 1400px; }
+        .form-section { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .table-responsive { font-size: 0.9em; }
+        .table th { background-color: #e9ecef; }
     </style>
 </head>
+<body>
 
-<body class="container py-4">
+<div class="container-fluid mt-4">
+    <h1 class="mb-4 text-center">📚 لوحة التحكم - إضافة محتوى جديد</h1>
 
-    <h2 class="mb-4 text-center title">لوحة تحكم منصة نيو أكاديمي التعليمية</h2>
+    <!-- Add New Resource Form -->
+    <div class="form-section">
+        <form method="post" action="/admin/add" enctype="multipart/form-data">
+            <input type="hidden" name="password" value="admin123">
 
-    <!-- ==============================
-         FORM: ADD RESOURCE
-    =============================== -->
-    <div class="form-section shadow-sm">
-        <h4>➕ إضافة رابط / ملف جديد</h4>
-
-        <form method="post" action="/admin/add" enctype="multipart/form-data" class="row g-3">
-
-            <div class="col-md-3">
-                <label class="form-label">كلمة المرور:</label>
-                <input name="password" type="password" class="form-control" required>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">المرحلة</label>
+                    <select id="stage_id" name="stage_id" class="form-select" required>
+                        <option value="">اختر المرحلة...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">الفصل</label>
+                    <select id="term_id" name="term_id" class="form-select" required disabled>
+                        <option value="">اختر الفصل...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">الصف</label>
+                    <select id="grade_id" name="grade_id" class="form-select" required disabled>
+                        <option value="">اختر الصف...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">المادة</label>
+                    <select id="subject_id" name="subject_id" class="form-select" required disabled>
+                        <option value="">اختر المادة...</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="col-md-3">
-                <label class="form-label">المرحلة:</label>
-                <select id="stage" name="stage_id" class="form-select" required></select>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">نوع المحتوى</label>
+                    <select id="option_id" name="option_id" class="form-select" required disabled>
+                        <option value="">اختر النوع...</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">القسم</label>
+                    <select id="child_id" name="child_id" class="form-select" required disabled>
+                        <option value="">اختر القسم...</option>
+                    </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">القسم الفرعي (اختياري)</label>
+                    <select id="subchild_id" name="subchild_id" class="form-select" disabled>
+                        <option value="">اختر القسم الفرعي...</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="col-md-3">
-                <label class="form-label">الفصل:</label>
-                <select id="term" name="term_id" class="form-select" required></select>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">عنوان المادة</label>
+                    <input type="text" id="title" name="title" class="form-control" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">الرابط المباشر</label>
+                    <input type="url" id="url" name="url" class="form-control" placeholder="أو ارفع PDF أدناه">
+                </div>
+                <div class="col-md-2 mb-3 d-flex align-items-end">
+                    <input type="file" id="file" name="file" class="form-control" accept=".pdf,application/pdf">
+                </div>
             </div>
 
-            <div class="col-md-3">
-                <label class="form-label">الصف:</label>
-                <select id="grade" name="grade_id" class="form-select" required></select>
-            </div>
-
-            <div class="col-md-3">
-                <label class="form-label">المادة:</label>
-                <select id="subject" name="subject_id" class="form-select" required></select>
-            </div>
-
-            <div class="col-md-3">
-                <label class="form-label">نوع المحتوى:</label>
-                <select id="option" name="option_id" class="form-select" required></select>
-            </div>
-
-            <div class="col-md-3">
-                <label class="form-label">القسم:</label>
-                <select id="child" name="child_id" class="form-select" required></select>
-            </div>
-
-            <div class="col-md-3">
-                <label class="form-label">القسم الفرعي (اختياري):</label>
-                <select id="subchild" name="subchild_id" class="form-select"></select>
-            </div>
-
-            <div class="col-md-6">
-                <label class="form-label">العنوان:</label>
-                <input name="title" class="form-control" required>
-            </div>
-
-            <div class="col-md-6">
-                <label class="form-label">الرابط (اختياري):</label>
-                <input name="url" class="form-control">
-            </div>
-
-            <div class="col-md-6">
-                <label class="form-label">رفع ملف PDF (اختياري):</label>
-                <input name="file" type="file" accept=".pdf" class="form-control">
-            </div>
-
-            <div class="col-md-12 text-center">
-                <button class="btn btn-success px-5 mt-3">✔ إضافة</button>
-            </div>
-
+            <button type="submit" class="btn btn-primary">➕ إضافة مادة</button>
         </form>
     </div>
 
+    <hr>
 
-    <!-- ==============================
-         TABLE: RESOURCES LIST
-    =============================== -->
-    <div class="card shadow-sm p-3">
-        <h4 class="mb-3">📚 الروابط المضافة</h4>
-
-        <div class="table-responsive">
-            <table class="table table-bordered table-striped">
-                <thead class="table-dark">
-                    <tr>
-                        <th>#</th>
-                        <th>مرحلة</th>
-                        <th>فصل</th>
-                        <th>صف</th>
-                        <th>مادة</th>
-                        <th>محتوى</th>
-                        <th>قسم</th>
-                        <th>فرعي</th>
-                        <th>عنوان</th>
-                        <th>فتح</th>
-                        <th>تعديل</th>
-                        <th>حذف</th>
-                    </tr>
-                </thead>
-
-                <tbody>
-                    __ROWS__
-                </tbody>
-            </table>
-        </div>
+    <h2 class="mb-3">المواد المضافة حديثاً</h2>
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>#</th><th>المرحلة</th><th>الفصل</th><th>الصف</th><th>المادة</th>
+                    <th>النوع</th><th>القسم</th><th>القسم الفرعي</th><th>العنوان</th>
+                    <th>رابط</th><th>تعديل</th><th>حذف</th>
+                </tr>
+            </thead>
+            <tbody>
+                __ROWS__
+            </tbody>
+        </table>
     </div>
+</div>
 
+<script>
+// --- Data injected from FastAPI (NO JSON.parse) ---
+const stages = __STAGES__;
+const terms = __TERMS__;
+const grades = __GRADES__;
+const subjects = __SUBJECTS__;
+const options = __OPTIONS__;
+const children = __CHILDREN__;
+const subchildren = __SUBCHILDREN__;
+const subjectOptionMap = __SUBJOPT__;
 
-    <!-- ==============================
-         DATA (injected by Python)
-    =============================== -->
-    <script>
-        const stages      = JSON.parse('__STAGES__');
-        const terms       = JSON.parse('__TERMS__');
-        const grades      = JSON.parse('__GRADES__');
-        const subjects    = JSON.parse('__SUBJECTS__');
-        const options     = JSON.parse('__OPTIONS__');
-        const children    = JSON.parse('__CHILDREN__');
-        const subchildren = JSON.parse('__SUBCHILDREN__');
-        const subjopt     = JSON.parse('__SUBJOPT__');
-    </script>
+// --- DOM Elements ---
+const stageSelect = document.getElementById('stage_id');
+const termSelect = document.getElementById('term_id');
+const gradeSelect = document.getElementById('grade_id');
+const subjectSelect = document.getElementById('subject_id');
+const optionSelect = document.getElementById('option_id');
+const childSelect = document.getElementById('child_id');
+const subchildSelect = document.getElementById('subchild_id');
 
-    <!-- ==============================
-         JS: AUTOMATIC FILTERING LOGIC
-    =============================== -->
-    <script>
-        const stageSelect = document.getElementById("stage");
-        const termSelect = document.getElementById("term");
-        const gradeSelect = document.getElementById("grade");
-        const subjectSelect = document.getElementById("subject");
-        const optionSelect = document.getElementById("option");
-        const childSelect = document.getElementById("child");
-        const subchildSelect = document.getElementById("subchild");
+// --- Helper function ---
+function populateDropdown(select, data, placeholder = "اختر...") {
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    if (!data) return;
+    data.forEach(item => {
+        select.add(new Option(item.name, item.id));
+    });
+}
 
-        function fill(select, items, idField="id", nameField="name") {
-            select.innerHTML = "";
-            items.forEach(i => {
-                select.innerHTML += `<option value="${i[idField]}">${i[nameField]}</option>`;
-            });
-        }
+// --- Dynamic Dropdowns ---
+stageSelect.addEventListener('change', () => {
+    const id = stageSelect.value;
+    termSelect.disabled = !id;
+    populateDropdown(termSelect, terms.filter(t => t.stage_id == id));
+    populateDropdown(gradeSelect); gradeSelect.disabled = true;
+    populateDropdown(subjectSelect); subjectSelect.disabled = true;
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        fill(stageSelect, stages);
+termSelect.addEventListener('change', () => {
+    const id = termSelect.value;
+    gradeSelect.disabled = !id;
+    populateDropdown(gradeSelect, grades.filter(g => g.term_id == id));
+    populateDropdown(subjectSelect); subjectSelect.disabled = true;
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        stageSelect.onchange = function () {
-            let t = terms.filter(i => i.stage_id == this.value);
-            fill(termSelect, t);
-            termSelect.onchange();
-        };
+gradeSelect.addEventListener('change', () => {
+    const id = gradeSelect.value;
+    subjectSelect.disabled = !id;
+    populateDropdown(subjectSelect, subjects.filter(s => s.grade_id == id));
+    populateDropdown(optionSelect); optionSelect.disabled = true;
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        termSelect.onchange = function () {
-            let g = grades.filter(i => i.term_id == this.value);
-            fill(gradeSelect, g);
-            gradeSelect.onchange();
-        };
+subjectSelect.addEventListener('change', () => {
+    const id = subjectSelect.value;
+    const allowedIds = subjectOptionMap.filter(m => m.subject_id == id).map(m => m.option_id);
+    const data = options.filter(o => allowedIds.includes(o.id));
+    optionSelect.disabled = data.length === 0;
+    populateDropdown(optionSelect, data);
+    populateDropdown(childSelect); childSelect.disabled = true;
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        gradeSelect.onchange = function () {
-            let s = subjects.filter(i => i.grade_id == this.value);
-            fill(subjectSelect, s);
-            subjectSelect.onchange();
-        };
+optionSelect.addEventListener('change', () => {
+    const id = optionSelect.value;
+    childSelect.disabled = !id;
+    populateDropdown(childSelect, children.filter(c => c.option_id == id));
+    populateDropdown(subchildSelect); subchildSelect.disabled = true;
+});
 
-        subjectSelect.onchange = function () {
-            let allowed = subjopt
-                .filter(i => i.subject_id == this.value)
-                .map(i => i.option_id);
+childSelect.addEventListener('change', () => {
+    const id = childSelect.value;
+    const subs = subchildren.filter(sc => sc.child_id == id);
+    subchildSelect.disabled = subs.length === 0;
+    populateDropdown(subchildSelect, subs, "لا يوجد أقسام فرعية");
+});
 
-            let o = options.filter(i => allowed.includes(i.id));
-            fill(optionSelect, o);
-            optionSelect.onchange();
-        };
-
-        optionSelect.onchange = function () {
-            let c = children.filter(i => i.option_id == this.value);
-            fill(childSelect, c);
-            childSelect.onchange();
-        };
-
-        childSelect.onchange = function () {
-            let sc = subchildren.filter(i => i.child_id == this.value);
-            fill(subchildSelect, sc);
-        };
-
-        stageSelect.onchange();
-    </script>
+// --- Initial load ---
+document.addEventListener('DOMContentLoaded', () => {
+    populateDropdown(stageSelect, stages);
+});
+</script>
 
 </body>
 </html>
