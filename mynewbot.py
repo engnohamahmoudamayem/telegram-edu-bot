@@ -80,42 +80,50 @@ app.state.tg_application = None
 user_state = {}
 
 # ============================================================
-#   KEYBOARD MAKER — RTL (مُعدّل ومضمون)
+#   HELPERS
 # ============================================================
 def make_keyboard(options):
     """
-    يأخذ قائمة من:
-      - tuples مثل: (id, name) أو (name,) أو (id, name, extra...)
-      - أو strings مباشرة
-    ويرجع Keyboard بالشكل المطلوب من تيليجرام:
-      [ ['زر1', 'زر2'], ['زر3'], ['رجوع ↩️'] ]
+    options: قائمة من tuples بالشكل (id, name, ...) أو (id, name)
+    نعرض للمستخدم: "id - name"
     """
     labels = []
 
     for opt in options:
-        if isinstance(opt, (tuple, list)):
-            if len(opt) >= 2:
-                # لو (id, name, ...) → نأخذ الاسم (العنصر الثاني)
-                labels.append(str(opt[1]))
-            elif len(opt) == 1:
-                labels.append(str(opt[0]))
+        if isinstance(opt, (tuple, list)) and len(opt) >= 2:
+            item_id = opt[0]
+            name = opt[1]
+            labels.append(f"{item_id} - {name}")
         else:
             labels.append(str(opt))
 
-    # فلترة الفراغات
     labels = [lbl for lbl in labels if lbl.strip()]
+
+    if not labels:
+        return ReplyKeyboardMarkup([["رجوع ↩️"]], resize_keyboard=True)
 
     rows = []
     for i in range(0, len(labels), 2):
-        row = labels[i:i + 2]
-        # ممكن تعكسي لو حابة RTL:
-        # row.reverse()
-        rows.append(row)
+        rows.append(labels[i:i+2])
 
-    # زر الرجوع
     rows.append(["رجوع ↩️"])
 
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
+
+def extract_id(text: str):
+    """
+    يحوّل نص الزر:
+       '12 - الصف الرابع' → 12
+    لو مفيش ' - ' يرجّع None
+    """
+    if not text:
+        return None
+    if " - " in text:
+        left = text.split(" - ", 1)[0].strip()
+        if left.isdigit():
+            return int(left)
+    return None
 
 
 # ============================================================
@@ -158,7 +166,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
 
-        if state.get("step") == "subchild":
+        step = state.get("step")
+
+        if step == "subchild":
+            # لو مفيش option_id لأي سبب، نرجع للبداية
+            if "option_id" not in state:
+                return await start(update, context)
             state["step"] = "suboption"
             cursor.execute(
                 "SELECT id, name FROM option_children WHERE option_id=?",
@@ -168,7 +181,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر القسم:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        if state.get("step") == "suboption":
+        if step == "suboption":
+            if "subject_id" not in state:
+                return await start(update, context)
             state["step"] = "option"
             cursor.execute(
                 """
@@ -183,7 +198,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        if state.get("step") == "option":
+        if step == "option":
+            if "grade_id" not in state:
+                return await start(update, context)
             state["step"] = "subject"
             cursor.execute(
                 "SELECT id, name FROM subjects WHERE grade_id=?",
@@ -193,7 +210,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر المادة:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        if state.get("step") == "subject":
+        if step == "subject":
+            if "term_id" not in state:
+                return await start(update, context)
             state["step"] = "grade"
             cursor.execute(
                 "SELECT id, name FROM grades WHERE term_id=?",
@@ -203,7 +222,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر الصف:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        if state.get("step") == "grade":
+        if step == "grade":
+            if "stage_id" not in state:
+                return await start(update, context)
             state["step"] = "term"
             cursor.execute(
                 "SELECT id, name FROM terms WHERE stage_id=?",
@@ -213,7 +234,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        if state.get("step") == "term":
+        if step == "term":
             state["step"] = "stage"
             cursor.execute("SELECT id, name FROM stages ORDER BY id")
             return await update.message.reply_text(
@@ -224,11 +245,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- المرحلة ----------------
     if state["step"] == "stage":
-        cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["stage_id"] = row[0]
+        stage_id = extract_id(text)
+        if not stage_id:
+            # fallback لو الزر قديم بدون ID
+            cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
+            row = cursor.fetchone()
+            if not row:
+                return
+            stage_id = row[0]
+
+        state["stage_id"] = stage_id
         state["step"] = "term"
         cursor.execute(
             "SELECT id, name FROM terms WHERE stage_id=?",
@@ -240,14 +266,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- الفصل ----------------
     if state["step"] == "term":
-        cursor.execute(
-            "SELECT id FROM terms WHERE name=? AND stage_id=?",
-            (text, state["stage_id"]),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["term_id"] = row[0]
+        term_id = extract_id(text)
+        if not term_id:
+            cursor.execute(
+                "SELECT id FROM terms WHERE name=? AND stage_id=?",
+                (text, state["stage_id"]),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            term_id = row[0]
+
+        state["term_id"] = term_id
         state["step"] = "grade"
         cursor.execute(
             "SELECT id, name FROM grades WHERE term_id=?",
@@ -259,15 +289,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- الصف ----------------
     if state["step"] == "grade":
-        # نربط الاسم بالـ term_id لتفادي التكرار بين المراحل
-        cursor.execute(
-            "SELECT id FROM grades WHERE name=? AND term_id=?",
-            (text, state["term_id"]),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["grade_id"] = row[0]
+        grade_id = extract_id(text)
+        if not grade_id:
+            cursor.execute(
+                "SELECT id FROM grades WHERE name=? AND term_id=?",
+                (text, state["term_id"]),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            grade_id = row[0]
+
+        state["grade_id"] = grade_id
         state["step"] = "subject"
         cursor.execute(
             "SELECT id, name FROM subjects WHERE grade_id=?",
@@ -279,15 +312,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- المادة ----------------
     if state["step"] == "subject":
-        # نربط الاسم بالـ grade_id لتفادي التكرار بين الصفوف
-        cursor.execute(
-            "SELECT id FROM subjects WHERE name=? AND grade_id=?",
-            (text, state["grade_id"]),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["subject_id"] = row[0]
+        subject_id = extract_id(text)
+        if not subject_id:
+            cursor.execute(
+                "SELECT id FROM subjects WHERE name=? AND grade_id=?",
+                (text, state["grade_id"]),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            subject_id = row[0]
+
+        state["subject_id"] = subject_id
         state["step"] = "option"
         cursor.execute(
             """
@@ -304,14 +340,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- OPTION ----------------
     if state["step"] == "option":
-        cursor.execute(
-            "SELECT id FROM subject_options WHERE name=?",
-            (text,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["option_id"] = row[0]
+        option_id = extract_id(text)
+        if not option_id:
+            cursor.execute(
+                "SELECT id FROM subject_options WHERE name=?",
+                (text,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            option_id = row[0]
+
+        state["option_id"] = option_id
         state["step"] = "suboption"
         cursor.execute(
             "SELECT id, name FROM option_children WHERE option_id=?",
@@ -324,14 +364,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- SUBOPTION ----------------
     if state["step"] == "suboption":
 
-        cursor.execute(
-            "SELECT id FROM option_children WHERE name=? AND option_id=?",
-            (text, state["option_id"]),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        state["child_id"] = row[0]
+        child_id = extract_id(text)
+        if not child_id:
+            cursor.execute(
+                "SELECT id FROM option_children WHERE name=? AND option_id=?",
+                (text, state["option_id"]),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            child_id = row[0]
+
+        state["child_id"] = child_id
 
         cursor.execute(
             "SELECT id, name FROM option_subchildren WHERE child_id=?",
@@ -378,14 +422,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- SUBCHILD ----------------
     if state["step"] == "subchild":
 
-        cursor.execute(
-            "SELECT id FROM option_subchildren WHERE name=? AND child_id=?",
-            (text, state["child_id"]),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-        subchild_id = row[0]
+        subchild_id = extract_id(text)
+        if not subchild_id:
+            cursor.execute(
+                "SELECT id FROM option_subchildren WHERE name=? AND child_id=?",
+                (text, state["child_id"]),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            subchild_id = row[0]
 
         cursor.execute(
             """
@@ -522,7 +568,6 @@ def admin_form():
         </tr>
         """
 
-    # تجهيز JSON للـ dropdowns كـ objects
     stages_json = [{"id": s[0], "name": s[1]} for s in stages]
     terms_json = [{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms]
     grades_json = [{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades]
@@ -657,7 +702,7 @@ def admin_edit_page(rid: int):
             <button class="btn btn-success mt-3">حفظ</button>
         </form>
 
-        <a href="/admin">رجوع</a>
+            <a href="/admin">رجوع</a>
         </body></html>
         """
     )
