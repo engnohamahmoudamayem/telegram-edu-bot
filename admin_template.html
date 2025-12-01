@@ -141,19 +141,18 @@
 
 
     <!-- ==============================
-         DATA from Python (NOW JSON PARSED)
+         DATA (NO JSON.parse)
     =============================== -->
     <script>
-        const STAGES = JSON.parse(`__STAGES__`);
-        const TERMS = JSON.parse(`__TERMS__`);
-        const GRADES = JSON.parse(`__GRADES__`);
-        const SUBJECTS = JSON.parse(`__SUBJECTS__`);
-        const OPTIONS = JSON.parse(`__OPTIONS__`);
-        const CHILDREN = JSON.parse(`__CHILDREN__`);
-        const SUBCHILDREN = JSON.parse(`__SUBCHILDREN__`);
-        const SUBJOPT = JSON.parse(`__SUBJOPT__`);
+        const STAGES       = __STAGES__;
+        const TERMS        = __TERMS__;
+        const GRADES       = __GRADES__;
+        const SUBJECTS     = __SUBJECTS__;
+        const OPTIONS      = __OPTIONS__;
+        const CHILDREN     = __CHILDREN__;
+        const SUBCHILDREN  = __SUBCHILDREN__;
+        const SUBJOPT      = __SUBJOPT__;
     </script>
-
 
     <!-- ==============================
          JS: Automatic Filtering
@@ -196,6 +195,7 @@
 
         subjectSelect.onchange = function () {
             let allowed = SUBJOPT
+                .filter(i => i.option_id)   /* FIX */
                 .filter(i => i.subject_id == this.value)
                 .map(i => i.option_id);
 
