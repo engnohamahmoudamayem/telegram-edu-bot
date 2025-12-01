@@ -141,18 +141,19 @@
 
 
     <!-- ==============================
-         DATA (Injected from Python)
+         DATA from Python (NOW JSON PARSED)
     =============================== -->
     <script>
-        const stages = __STAGES__;
-        const terms = __TERMS__;
-        const grades = __GRADES__;
-        const subjects = __SUBJECTS__;
-        const options = __OPTIONS__;
-        const children = __CHILDREN__;
-        const subchildren = __SUBCHILDREN__;
-        const subjopt = __SUBJOPT__;
+        const STAGES = JSON.parse(`__STAGES__`);
+        const TERMS = JSON.parse(`__TERMS__`);
+        const GRADES = JSON.parse(`__GRADES__`);
+        const SUBJECTS = JSON.parse(`__SUBJECTS__`);
+        const OPTIONS = JSON.parse(`__OPTIONS__`);
+        const CHILDREN = JSON.parse(`__CHILDREN__`);
+        const SUBCHILDREN = JSON.parse(`__SUBCHILDREN__`);
+        const SUBJOPT = JSON.parse(`__SUBJOPT__`);
     </script>
+
 
     <!-- ==============================
          JS: Automatic Filtering
@@ -173,44 +174,44 @@
             });
         }
 
-        fill(stageSelect, stages);
+        fill(stageSelect, STAGES);
 
         stageSelect.onchange = function () {
-            let t = terms.filter(i => i.stage_id == this.value);
+            let t = TERMS.filter(i => i.stage_id == this.value);
             fill(termSelect, t);
             termSelect.onchange();
         };
 
         termSelect.onchange = function () {
-            let g = grades.filter(i => i.term_id == this.value);
+            let g = GRADES.filter(i => i.term_id == this.value);
             fill(gradeSelect, g);
             gradeSelect.onchange();
         };
 
         gradeSelect.onchange = function () {
-            let s = subjects.filter(i => i.grade_id == this.value);
+            let s = SUBJECTS.filter(i => i.grade_id == this.value);
             fill(subjectSelect, s);
             subjectSelect.onchange();
         };
 
         subjectSelect.onchange = function () {
-            let allowed = subjopt
-                .filter(i => i[0] == this.value)
-                .map(i => i[1]);
+            let allowed = SUBJOPT
+                .filter(i => i.subject_id == this.value)
+                .map(i => i.option_id);
 
-            let o = options.filter(i => allowed.includes(i.id));
+            let o = OPTIONS.filter(i => allowed.includes(i.id));
             fill(optionSelect, o);
             optionSelect.onchange();
         };
 
         optionSelect.onchange = function () {
-            let c = children.filter(i => i.option_id == this.value);
+            let c = CHILDREN.filter(i => i.option_id == this.value);
             fill(childSelect, c);
             childSelect.onchange();
         };
 
         childSelect.onchange = function () {
-            let sc = subchildren.filter(i => i.child_id == this.value);
+            let sc = SUBCHILDREN.filter(i => i.child_id == this.value);
             fill(subchildSelect, sc);
         };
 
