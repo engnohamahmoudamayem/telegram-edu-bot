@@ -5,100 +5,120 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>لوحة التحكم - منصة نيو أكاديمي</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .container-fluid { max-width: 1400px; }
-        .form-section { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .table-responsive { font-size: 0.9em; }
-        .table th { background-color: #e9ecef; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background:#f5f5f5; }
+        .container-fluid { max-width:1400px; }
+        .form-section { background:#fff; padding:20px; border-radius:10px; margin-bottom:20px; }
+        table td, table th { text-align:center; vertical-align:middle; }
     </style>
 </head>
+
 <body>
 
 <div class="container-fluid mt-4">
-    <h1 class="mb-4 text-center">📚 لوحة التحكم - إضافة محتوى جديد</h1>
 
-    <!-- Add New Resource Form -->
-    <div class="form-section">
+    <h1 class="mb-4 text-center">📚 لوحة التحكم - إدارة المحتوى</h1>
+
+    <!-- =====================  ADD FORM ===================== -->
+    <div class="form-section shadow-sm">
+
         <form method="post" action="/admin/add" enctype="multipart/form-data">
             <input type="hidden" name="password" value="admin123">
 
             <div class="row">
+
                 <div class="col-md-3 mb-3">
                     <label class="form-label">المرحلة</label>
                     <select id="stage_id" name="stage_id" class="form-select" required>
                         <option value="">اختر المرحلة...</option>
                     </select>
                 </div>
+
                 <div class="col-md-3 mb-3">
                     <label class="form-label">الفصل</label>
                     <select id="term_id" name="term_id" class="form-select" required disabled>
                         <option value="">اختر الفصل...</option>
                     </select>
                 </div>
+
                 <div class="col-md-3 mb-3">
                     <label class="form-label">الصف</label>
                     <select id="grade_id" name="grade_id" class="form-select" required disabled>
                         <option value="">اختر الصف...</option>
                     </select>
                 </div>
+
                 <div class="col-md-3 mb-3">
                     <label class="form-label">المادة</label>
                     <select id="subject_id" name="subject_id" class="form-select" required disabled>
                         <option value="">اختر المادة...</option>
                     </select>
                 </div>
+
             </div>
 
             <div class="row">
+
                 <div class="col-md-4 mb-3">
                     <label class="form-label">نوع المحتوى</label>
                     <select id="option_id" name="option_id" class="form-select" required disabled>
                         <option value="">اختر النوع...</option>
                     </select>
                 </div>
+
                 <div class="col-md-4 mb-3">
                     <label class="form-label">القسم</label>
                     <select id="child_id" name="child_id" class="form-select" required disabled>
                         <option value="">اختر القسم...</option>
                     </select>
                 </div>
+
                 <div class="col-md-4 mb-3">
                     <label class="form-label">القسم الفرعي (اختياري)</label>
                     <select id="subchild_id" name="subchild_id" class="form-select" disabled>
                         <option value="">اختر القسم الفرعي...</option>
                     </select>
                 </div>
+
             </div>
 
             <div class="row">
+
                 <div class="col-md-6 mb-3">
                     <label class="form-label">عنوان المادة</label>
-                    <input type="text" id="title" name="title" class="form-control" required>
+                    <input type="text" name="title" class="form-control" required>
                 </div>
+
                 <div class="col-md-4 mb-3">
                     <label class="form-label">الرابط المباشر</label>
-                    <input type="url" id="url" name="url" class="form-control" placeholder="أو ارفع PDF أدناه">
+                    <input type="url" name="url" class="form-control" placeholder="أو ارفعي PDF">
                 </div>
+
                 <div class="col-md-2 mb-3 d-flex align-items-end">
-                    <input type="file" id="file" name="file" class="form-control" accept=".pdf,application/pdf">
+                    <input type="file" name="file" class="form-control" accept=".pdf">
                 </div>
+
             </div>
 
-            <button type="submit" class="btn btn-primary">➕ إضافة مادة</button>
+            <button type="submit" class="btn btn-primary px-4">➕ إضافة</button>
+
         </form>
+
     </div>
 
     <hr>
 
-    <h2 class="mb-3">المواد المضافة حديثاً</h2>
+    <!-- =====================  TABLE ===================== -->
+    <h2>المواد المضافة</h2>
+
     <div class="table-responsive">
-        <table class="table table-striped table-hover">
-            <thead>
+        <table class="table table-striped table-bordered">
+            <thead class="table-dark">
                 <tr>
-                    <th>#</th><th>المرحلة</th><th>الفصل</th><th>الصف</th><th>المادة</th>
-                    <th>النوع</th><th>القسم</th><th>القسم الفرعي</th><th>العنوان</th>
-                    <th>رابط</th><th>تعديل</th><th>حذف</th>
+                    <th>#</th><th>المرحلة</th><th>الفصل</th><th>الصف</th>
+                    <th>المادة</th><th>النوع</th><th>القسم</th><th>الفرعي</th>
+                    <th>العنوان</th><th>فتح</th><th>تعديل</th><th>حذف</th>
                 </tr>
             </thead>
             <tbody>
@@ -106,108 +126,90 @@
             </tbody>
         </table>
     </div>
+
 </div>
 
+
+<!-- ====================== INJECTED JSON (READY JS ARRAYS) ===================== -->
+
 <script>
-// ======================= JSON DATA FROM FASTAPI ============================
-const stages = JSON.parse('__STAGES__');
-const terms = JSON.parse('__TERMS__');
-const grades = JSON.parse('__GRADES__');
-const subjects = JSON.parse('__SUBJECTS__');
-const options = JSON.parse('__OPTIONS__');
-const children = JSON.parse('__CHILDREN__');
-const subchildren = JSON.parse('__SUBCHILDREN__');
-const subjectOptionMap = JSON.parse('__SUBJOPT__');
+const stages = __STAGES__;
+const terms = __TERMS__;
+const grades = __GRADES__;
+const subjects = __SUBJECTS__;
+const options = __OPTIONS__;
+const children = __CHILDREN__;
+const subchildren = __SUBCHILDREN__;
+const subjectOptionMap = __SUBJOPT__;
+</script>
 
-// ======================= DROPDOWNS ============================
-const stageSelect = document.getElementById('stage_id');
-const termSelect = document.getElementById('term_id');
-const gradeSelect = document.getElementById('grade_id');
-const subjectSelect = document.getElementById('subject_id');
-const optionSelect = document.getElementById('option_id');
-const childSelect = document.getElementById('child_id');
-const subchildSelect = document.getElementById('subchild_id');
+<!-- ====================== DROPDOWNS LOGIC ===================== -->
+<script>
 
-function populateDropdown(select, data, placeholder = "اختر...") {
+function fill(select, list, placeholder) {
     select.innerHTML = `<option value="">${placeholder}</option>`;
-    if (!data) return;
-    data.forEach(item => {
-        const opt = new Option(item.name, item.id);
-        select.add(opt);
-    });
+    list.forEach(x => select.innerHTML += `<option value="${x.id}">${x.name}</option>`);
 }
 
-// ======================= STAGE SELECT ============================
-stageSelect.addEventListener('change', () => {
-    const stageId = stageSelect.value;
-    termSelect.disabled = !stageId;
-    populateDropdown(termSelect, terms.filter(t => t.stage_id == stageId), "اختر الفصل...");
-    gradeSelect.disabled = true; populateDropdown(gradeSelect, []);
-    subjectSelect.disabled = true; populateDropdown(subjectSelect, []);
-    optionSelect.disabled = true; populateDropdown(optionSelect, []);
-    childSelect.disabled = true; populateDropdown(childSelect, []);
-    subchildSelect.disabled = true; populateDropdown(subchildSelect, []);
-});
+const stage = document.getElementById("stage_id");
+const term = document.getElementById("term_id");
+const grade = document.getElementById("grade_id");
+const subject = document.getElementById("subject_id");
+const option = document.getElementById("option_id");
+const child = document.getElementById("child_id");
+const subchild = document.getElementById("subchild_id");
 
-// ======================= TERM SELECT ============================
-termSelect.addEventListener('change', () => {
-    const termId = termSelect.value;
-    gradeSelect.disabled = !termId;
-    populateDropdown(gradeSelect, grades.filter(g => g.term_id == termId), "اختر الصف...");
-    subjectSelect.disabled = true; populateDropdown(subjectSelect, []);
-    optionSelect.disabled = true; populateDropdown(optionSelect, []);
-    childSelect.disabled = true; populateDropdown(childSelect, []);
-    subchildSelect.disabled = true; populateDropdown(subchildSelect, []);
-});
+// stage → term
+stage.onchange = () => {
+    fill(term, terms.filter(t => t.stage_id == stage.value), "اختر الفصل...");
+    term.disabled = false;
 
-// ======================= GRADE SELECT ============================
-gradeSelect.addEventListener('change', () => {
-    const gradeId = gradeSelect.value;
-    subjectSelect.disabled = !gradeId;
-    populateDropdown(subjectSelect, subjects.filter(s => s.grade_id == gradeId), "اختر المادة...");
-    optionSelect.disabled = true; populateDropdown(optionSelect, []);
-    childSelect.disabled = true; populateDropdown(childSelect, []);
-    subchildSelect.disabled = true; populateDropdown(subchildSelect, []);
-});
+    grade.disabled = true; grade.innerHTML="";
+    subject.disabled = true; subject.innerHTML="";
+    option.disabled = true; option.innerHTML="";
+    child.disabled = true; child.innerHTML="";
+    subchild.disabled = true; subchild.innerHTML="";
+};
 
-// ======================= SUBJECT SELECT ============================
-subjectSelect.addEventListener('change', () => {
-    const subjectId = subjectSelect.value;
+// term → grade
+term.onchange = () => {
+    fill(grade, grades.filter(g => g.term_id == term.value), "اختر الصف...");
+    grade.disabled = false;
+};
 
-    const allowedOptionIds = subjectOptionMap
-        .filter(m => m.subject_id == subjectId)
-        .map(m => m.option_id);
+// grade → subject
+grade.onchange = () => {
+    fill(subject, subjects.filter(s => s.grade_id == grade.value), "اختر المادة...");
+    subject.disabled = false;
+};
 
-    const availableOptions = options.filter(o => allowedOptionIds.includes(o.id));
+// subject → option
+subject.onchange = () => {
+    const allowed = subjectOptionMap
+        .filter(x => x.subject_id == subject.value)
+        .map(x => x.option_id);
 
-    optionSelect.disabled = availableOptions.length === 0;
-    populateDropdown(optionSelect, availableOptions, "اختر النوع...");
+    const opts = options.filter(o => allowed.includes(o.id));
 
-    childSelect.disabled = true; populateDropdown(childSelect, []);
-    subchildSelect.disabled = true; populateDropdown(subchildSelect, []);
-});
+    fill(option, opts, "اختر النوع...");
+    option.disabled = false;
+};
 
-// ======================= OPTION SELECT ============================
-optionSelect.addEventListener('change', () => {
-    const optionId = optionSelect.value;
-    childSelect.disabled = !optionId;
-    populateDropdown(childSelect, children.filter(c => c.option_id == optionId), "اختر القسم...");
-    subchildSelect.disabled = true; populateDropdown(subchildSelect, []);
-});
+// option → child
+option.onchange = () => {
+    fill(child, children.filter(c => c.option_id == option.value), "اختر القسم...");
+    child.disabled = false;
+};
 
-// ======================= CHILD SELECT ============================
-childSelect.addEventListener('change', () => {
-    const childId = childSelect.value;
-    const subs = subchildren.filter(sc => sc.child_id == childId);
+// child → subchild
+child.onchange = () => {
+    const subs = subchildren.filter(sc => sc.child_id == child.value);
+    fill(subchild, subs, subs.length ? "اختر القسم الفرعي..." : "لا يوجد");
+    subchild.disabled = subs.length === 0;
+};
 
-    subchildSelect.disabled = subs.length === 0;
-    populateDropdown(subchildSelect, subs, subs.length ? "اختر القسم الفرعي..." : "لا يوجد أقسام فرعية");
-});
-
-// ======================= INITIAL LOAD ============================
-document.addEventListener('DOMContentLoaded', () => {
-    populateDropdown(stageSelect, stages, "اختر المرحلة...");
-});
+// Load stages at start
+fill(stage, stages, "اختر المرحلة...");
 </script>
 
 </body>
