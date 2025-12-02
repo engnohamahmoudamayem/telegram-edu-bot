@@ -27,6 +27,28 @@ from telegram.ext import (
 #   LOAD ENV
 # ============================================================
 load_dotenv()
+# ========================
+#  DATABASE CONFIG
+# ========================
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env (Render also loads automatically)
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+print("🔍 DATABASE_URL from Render =", DATABASE_URL)
+
+if not DATABASE_URL:
+    raise RuntimeError("❌ DATABASE_URL is missing!")
+
+# Connect to Remote PostgreSQL
+try:
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    print("✅ Connected to PostgreSQL successfully!")
+except Exception as e:
+    raise RuntimeError(f"❌ Cannot connect to PostgreSQL: {e}")
 
 BASE_DIR = Path(__file__).parent.resolve()
 DB_PATH = BASE_DIR / "edu_bot_data.db"
