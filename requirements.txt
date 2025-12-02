@@ -6,3 +6,4 @@ httpx
 python-multipart
 aiofiles
 jinja2
+psycopg2-binary

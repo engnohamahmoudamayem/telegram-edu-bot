@@ -2,10 +2,12 @@
 #   IMPORTS & PATHS
 # ============================================================
 import os
-import sqlite3
 import logging
 from contextlib import asynccontextmanager
 import json
+
+import psycopg2
+from psycopg2.extras import DictCursor
 
 from fastapi import FastAPI, Request, Response, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,56 +29,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "edu_bot_data.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-
-print("📌 DATABASE LOCATION =", DB_PATH)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-if not BOT_TOKEN or not APP_URL:
-    raise RuntimeError("❌ BOT_TOKEN or APP_URL missing!")
+if not BOT_TOKEN or not APP_URL or not DATABASE_URL:
+    raise RuntimeError("❌ BOT_TOKEN أو APP_URL أو DATABASE_URL مفقود!")
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+print("📌 USING DATABASE_URL =", DATABASE_URL)
 
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-cursor = conn.cursor()
+# اتصال PostgreSQL
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = False  # هنستخدم conn.commit() يدويًا
+cursor = conn.cursor()   # عادي (tuples)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("EDU_BOT")
 
 # ============================================================
-#   DB MIGRATION HELPER
-# ============================================================
-def ensure_resources_columns():
-    """
-    تتأكد إن جدول resources فيه الأعمدة:
-    stage_id, term_id, grade_id
-    لو مش موجودة تضيفها تلقائيًا.
-    """
-    cursor.execute("PRAGMA table_info(resources)")
-    cols = [row[1] for row in cursor.fetchall()]
-
-    needed = {
-        "stage_id": "INTEGER",
-        "term_id": "INTEGER",
-        "grade_id": "INTEGER",
-    }
-
-    for name, coltype in needed.items():
-        if name not in cols:
-            print(f"⚙️ Adding missing column {name} to resources table")
-            cursor.execute(f"ALTER TABLE resources ADD COLUMN {name} {coltype}")
-
-    conn.commit()
-
-
-ensure_resources_columns()
-
-# ============================================================
-#   FASTAPI APP (لازم قبل أي @app.get/@app.post)
+#   FASTAPI APP
 # ============================================================
 app = FastAPI()
 app.state.tg_application = None
@@ -112,24 +87,20 @@ def make_keyboard(options):
     for opt in options:
         if isinstance(opt, (tuple, list)):
             if len(opt) >= 2:
-                # لو (id, name, ...) → نأخذ الاسم فقط
-                labels.append(str(opt[1]))
+                labels.append(str(opt[1]))   # نأخذ الاسم فقط
             elif len(opt) == 1:
                 labels.append(str(opt[0]))
         else:
             labels.append(str(opt))
 
-    # إزالة الفارغ
     labels = [lbl for lbl in labels if lbl.strip()]
 
     rows: list[list[str]] = []
     for i in range(0, len(labels), 2):
         row = labels[i:i + 2]
-        # عكس لإظهار أول عنصر على اليمين
-        row.reverse()
+        row.reverse()   # عكس عشان يظهر أول عنصر على اليمين
         rows.append(row)
 
-    # زر الرجوع في صف مستقل
     rows.append(["رجوع ↩️"])
 
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -175,7 +146,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "subchild":
             state["step"] = "suboption"
             cursor.execute(
-                "SELECT id, name FROM option_children WHERE option_id=?",
+                "SELECT id, name FROM option_children WHERE option_id=%s",
                 (state["option_id"],),
             )
             return await update.message.reply_text(
@@ -189,7 +160,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 SELECT subject_options.id, subject_options.name
                 FROM subject_option_map
                 JOIN subject_options ON subject_options.id = subject_option_map.option_id
-                WHERE subject_option_map.subject_id=?
+                WHERE subject_option_map.subject_id=%s
                 """,
                 (state["subject_id"],),
             )
@@ -200,7 +171,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "option":
             state["step"] = "subject"
             cursor.execute(
-                "SELECT id, name FROM subjects WHERE grade_id=?",
+                "SELECT id, name FROM subjects WHERE grade_id=%s",
                 (state["grade_id"],),
             )
             return await update.message.reply_text(
@@ -210,7 +181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "subject":
             state["step"] = "grade"
             cursor.execute(
-                "SELECT id, name FROM grades WHERE term_id=?",
+                "SELECT id, name FROM grades WHERE term_id=%s",
                 (state["term_id"],),
             )
             return await update.message.reply_text(
@@ -220,7 +191,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if state.get("step") == "grade":
             state["step"] = "term"
             cursor.execute(
-                "SELECT id, name FROM terms WHERE stage_id=?",
+                "SELECT id, name FROM terms WHERE stage_id=%s",
                 (state["stage_id"],),
             )
             return await update.message.reply_text(
@@ -234,19 +205,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall())
             )
 
-        # fallback
         return await start(update, context)
 
     # ---------------- المرحلة ----------------
     if state["step"] == "stage":
-        cursor.execute("SELECT id FROM stages WHERE name=?", (text,))
+        cursor.execute("SELECT id FROM stages WHERE name=%s", (text,))
         row = cursor.fetchone()
         if not row:
             return
         state["stage_id"] = row[0]
         state["step"] = "term"
         cursor.execute(
-            "SELECT id, name FROM terms WHERE stage_id=?",
+            "SELECT id, name FROM terms WHERE stage_id=%s",
             (state["stage_id"],),
         )
         return await update.message.reply_text(
@@ -256,7 +226,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- الفصل ----------------
     if state["step"] == "term":
         cursor.execute(
-            "SELECT id FROM terms WHERE name=? AND stage_id=?",
+            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
             (text, state["stage_id"]),
         )
         row = cursor.fetchone()
@@ -265,7 +235,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["term_id"] = row[0]
         state["step"] = "grade"
         cursor.execute(
-            "SELECT id, name FROM grades WHERE term_id=?",
+            "SELECT id, name FROM grades WHERE term_id=%s",
             (state["term_id"],),
         )
         return await update.message.reply_text(
@@ -275,7 +245,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- الصف ----------------
     if state["step"] == "grade":
         cursor.execute(
-            "SELECT id FROM grades WHERE name=? AND term_id=?",
+            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
             (text, state["term_id"]),
         )
         row = cursor.fetchone()
@@ -284,7 +254,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["grade_id"] = row[0]
         state["step"] = "subject"
         cursor.execute(
-            "SELECT id, name FROM subjects WHERE grade_id=?",
+            "SELECT id, name FROM subjects WHERE grade_id=%s",
             (state["grade_id"],),
         )
         return await update.message.reply_text(
@@ -294,7 +264,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- المادة ----------------
     if state["step"] == "subject":
         cursor.execute(
-            "SELECT id FROM subjects WHERE name=? AND grade_id=?",
+            "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
             (text, state["grade_id"]),
         )
         row = cursor.fetchone()
@@ -307,7 +277,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             SELECT subject_options.id, subject_options.name
             FROM subject_option_map
             JOIN subject_options ON subject_options.id = subject_option_map.option_id
-            WHERE subject_option_map.subject_id=?
+            WHERE subject_option_map.subject_id=%s
             """,
             (state["subject_id"],),
         )
@@ -318,7 +288,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- OPTION ----------------
     if state["step"] == "option":
         cursor.execute(
-            "SELECT id FROM subject_options WHERE name=?",
+            "SELECT id FROM subject_options WHERE name=%s",
             (text,),
         )
         row = cursor.fetchone()
@@ -327,7 +297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["option_id"] = row[0]
         state["step"] = "suboption"
         cursor.execute(
-            "SELECT id, name FROM option_children WHERE option_id=?",
+            "SELECT id, name FROM option_children WHERE option_id=%s",
             (state["option_id"],),
         )
         return await update.message.reply_text(
@@ -337,7 +307,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- SUBOPTION ----------------
     if state["step"] == "suboption":
         cursor.execute(
-            "SELECT id FROM option_children WHERE name=? AND option_id=?",
+            "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
             (text, state["option_id"]),
         )
         row = cursor.fetchone()
@@ -346,25 +316,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state["child_id"] = row[0]
 
         cursor.execute(
-            "SELECT id, name FROM option_subchildren WHERE child_id=?",
+            "SELECT id, name FROM option_subchildren WHERE child_id=%s",
             (state["child_id"],),
         )
         subs = cursor.fetchall()
 
-        # لو فيه أقسام فرعية
         if subs:
             state["step"] = "subchild"
             return await update.message.reply_text(
                 "اختر القسم الفرعي:", reply_markup=make_keyboard(subs)
             )
 
-        # لو مفيش أقسام فرعية → اعرض الروابط مباشرة
+        # لو مفيش subchildren → روابط مباشرة
         cursor.execute(
             """
             SELECT title, url
             FROM resources
-            WHERE stage_id=? AND term_id=? AND grade_id=?
-              AND subject_id=? AND option_id=? AND child_id=?
+            WHERE stage_id=%s AND term_id=%s AND grade_id=%s
+              AND subject_id=%s AND option_id=%s AND child_id=%s
               AND (subchild_id IS NULL OR subchild_id=0)
             """,
             (
@@ -376,7 +345,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["child_id"],
             ),
         )
-
         resources = cursor.fetchall()
 
         if not resources:
@@ -390,7 +358,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ---------------- SUBCHILD ----------------
     if state["step"] == "subchild":
         cursor.execute(
-            "SELECT id FROM option_subchildren WHERE name=? AND child_id=?",
+            "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
             (text, state["child_id"]),
         )
         row = cursor.fetchone()
@@ -402,8 +370,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """
             SELECT title, url
             FROM resources
-            WHERE stage_id=? AND term_id=? AND grade_id=?
-              AND subject_id=? AND option_id=? AND child_id=? AND subchild_id=?
+            WHERE stage_id=%s AND term_id=%s AND grade_id=%s
+              AND subject_id=%s AND option_id=%s AND child_id=%s AND subchild_id=%s
             """,
             (
                 state["stage_id"],
@@ -415,7 +383,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subchild_id,
             ),
         )
-
         resources = cursor.fetchall()
 
         if not resources:
@@ -453,11 +420,13 @@ async def lifespan(app: FastAPI):
 
 app.router.lifespan_context = lifespan
 
+
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
     update = Update.de_json(await request.json(), app.state.tg_application.bot)
     await app.state.tg_application.process_update(update)
     return Response(status_code=200)
+
 
 @app.get("/")
 def root():
@@ -525,7 +494,6 @@ def admin_form():
         </tr>
         """
 
-    # تحويل النتائج إلى JSON كـ objects
     stages_json      = [{"id": s[0], "name": s[1]} for s in stages]
     terms_json       = [{"id": t[0], "name": t[1], "stage_id": t[2]} for t in terms]
     grades_json      = [{"id": g[0], "name": g[1], "term_id": g[2]} for g in grades]
@@ -573,11 +541,9 @@ async def admin_add(
     subchild_val = int(subchild_id) if subchild_id.strip() else None
     final_url = url.strip()
 
-    # لو فيه ملف مرفوع
     if file and file.filename:
         save_path = os.path.join(UPLOAD_DIR, file.filename)
 
-        # تأكد أنه مش فولدر
         if os.path.isdir(save_path):
             return HTMLResponse("❌ اسم الملف غير صالح", status_code=400)
 
@@ -589,24 +555,26 @@ async def admin_add(
     if not final_url:
         return HTMLResponse("❌ يجب إضافة رابط أو PDF", status_code=400)
 
-    # منع التكرار: لو نفس المحتوى موجود → عرض تعديل / حذف
-    cursor.execute("""
+    # منع التكرار: نستخدم COALESCE لمقارنة subchild_id (NULL أو رقم)
+    cursor.execute(
+        """
         SELECT id FROM resources
-        WHERE stage_id=? AND term_id=? AND grade_id=?
-          AND subject_id=? AND option_id=? AND child_id=?
-          AND (subchild_id IS ? OR subchild_id=?)
-          AND title=?
-    """, (
-        stage_id, term_id, grade_id,
-        subject_id, option_id, child_id,
-        subchild_val, subchild_val,
-        title
-    ))
+        WHERE stage_id=%s AND term_id=%s AND grade_id=%s
+          AND subject_id=%s AND option_id=%s AND child_id=%s
+          AND COALESCE(subchild_id, 0) = COALESCE(%s, 0)
+          AND title=%s
+        """,
+        (
+            stage_id, term_id, grade_id,
+            subject_id, option_id, child_id,
+            subchild_val,
+            title,
+        ),
+    )
     row = cursor.fetchone()
 
     if row:
         rid = row[0]
-        # شاشة تعديل / حذف
         return HTMLResponse(f"""
             <html dir='rtl'><body style="font-family:Tahoma; padding:20px;">
             <h3>⚠️ هذا المحتوى موجود بالفعل</h3>
@@ -636,21 +604,20 @@ async def admin_add(
             </body></html>
         """)
 
-    # INSERT فعلي
     cursor.execute("""
         INSERT INTO resources (
             subject_id, option_id, child_id,
             title, url, subchild_id,
             stage_id, term_id, grade_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         subject_id, option_id, child_id,
         title, final_url, subchild_val,
-        stage_id, term_id, grade_id
+        stage_id, term_id, grade_id,
     ))
-
     conn.commit()
+
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
@@ -658,7 +625,7 @@ async def admin_add(
 # ============================================================
 @app.post("/admin/delete/{rid}")
 def delete_resource(rid: int):
-    cursor.execute("DELETE FROM resources WHERE id=?", (rid,))
+    cursor.execute("DELETE FROM resources WHERE id=%s", (rid,))
     conn.commit()
     return RedirectResponse("/admin", status_code=303)
 
@@ -667,7 +634,7 @@ def delete_resource(rid: int):
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def admin_edit_page(rid: int):
-    cursor.execute("SELECT title, url FROM resources WHERE id=?", (rid,))
+    cursor.execute("SELECT title, url FROM resources WHERE id=%s", (rid,))
     row = cursor.fetchone()
 
     if not row:
@@ -713,7 +680,6 @@ async def admin_edit_save(
 ):
     final_url = url.strip()
 
-    # لو فيه ملف جديد
     if file and file.filename:
         save_path = os.path.join(UPLOAD_DIR, file.filename)
 
@@ -726,7 +692,7 @@ async def admin_edit_save(
         final_url = f"{APP_URL}/files/{file.filename}"
 
     cursor.execute(
-        "UPDATE resources SET title=?, url=? WHERE id=?",
+        "UPDATE resources SET title=%s, url=%s WHERE id=%s",
         (title, final_url, rid),
     )
     conn.commit()
