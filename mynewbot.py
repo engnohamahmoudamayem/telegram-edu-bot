@@ -5,6 +5,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 import json
+import psycopg2.extras
 
 import psycopg2
 from fastapi import FastAPI, Request, Response, Form, UploadFile, File
