@@ -102,7 +102,6 @@ def db_execute(query: str, params=()):
 # ============================================================
 def init_db_pg():
     with conn.cursor() as cur:
-        # stages
         cur.execute("""
         CREATE TABLE IF NOT EXISTS stages (
             id SERIAL PRIMARY KEY,
@@ -110,7 +109,6 @@ def init_db_pg():
         );
         """)
 
-        # terms
         cur.execute("""
         CREATE TABLE IF NOT EXISTS terms (
             id SERIAL PRIMARY KEY,
@@ -119,7 +117,6 @@ def init_db_pg():
         );
         """)
 
-        # grades
         cur.execute("""
         CREATE TABLE IF NOT EXISTS grades (
             id SERIAL PRIMARY KEY,
@@ -128,7 +125,6 @@ def init_db_pg():
         );
         """)
 
-        # subjects
         cur.execute("""
         CREATE TABLE IF NOT EXISTS subjects (
             id SERIAL PRIMARY KEY,
@@ -137,7 +133,6 @@ def init_db_pg():
         );
         """)
 
-        # subject options
         cur.execute("""
         CREATE TABLE IF NOT EXISTS subject_options (
             id SERIAL PRIMARY KEY,
@@ -145,7 +140,6 @@ def init_db_pg():
         );
         """)
 
-        # subject-option mapping
         cur.execute("""
         CREATE TABLE IF NOT EXISTS subject_option_map (
             subject_id INTEGER NOT NULL REFERENCES subjects(id),
@@ -153,7 +147,6 @@ def init_db_pg():
         );
         """)
 
-        # children
         cur.execute("""
         CREATE TABLE IF NOT EXISTS option_children (
             id SERIAL PRIMARY KEY,
@@ -162,7 +155,6 @@ def init_db_pg():
         );
         """)
 
-        # subchildren
         cur.execute("""
         CREATE TABLE IF NOT EXISTS option_subchildren (
             id SERIAL PRIMARY KEY,
@@ -171,7 +163,6 @@ def init_db_pg():
         );
         """)
 
-        # resources
         cur.execute("""
         CREATE TABLE IF NOT EXISTS resources (
             id SERIAL PRIMARY KEY,
@@ -220,10 +211,6 @@ user_state: dict[int, dict] = {}
 #   KEYBOARD (RTL)
 # ============================================================
 def make_keyboard(options):
-    """
-    options تكون list of strings (names فقط).
-    نرتبهم في صفوف ثنائية، ونعكس لكل صف عشان RTL.
-    """
     labels = [str(o).strip() for o in options if str(o).strip()]
     rows = []
     for i in range(0, len(labels), 2):
@@ -268,6 +255,7 @@ async def send_resources(update: Update, state: dict):
     msg = "\n".join(
         f"▪️ <a href='{r['url']}'>{r['title']}</a>" for r in resources
     )
+
     await update.message.reply_text(
         msg, parse_mode="HTML", disable_web_page_preview=True
     )
@@ -288,13 +276,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "مرحباً بكم ❤️\n\n"
         "📚 *اختر المرحلة للبدء:*"
     )
+
     await update.message.reply_text(
         welcome,
         reply_markup=make_keyboard(stage_names),
         parse_mode="Markdown",
     )
-
-
 # ============================================================
 #   MAIN TELEGRAM HANDLER
 # ============================================================
@@ -309,17 +296,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     step = state.get("step")
     log.info(f"📩 USER CLICKED: {text} | STEP = {step}")
 
-    # ---------------- BACK BUTTON ----------------
+    # -------- BACK BUTTON --------
     if text == "رجوع ↩️":
         back_map = {
-            "subchild": (
-                "suboption",
+            "subchild": ("suboption",
                 "SELECT name FROM option_children WHERE option_id = %s",
                 (state.get("option_id"),),
-                "اختر القسم:",
+                "اختر القسم:"
             ),
-            "suboption": (
-                "option",
+            "suboption": ("option",
                 """
                 SELECT so.name
                 FROM subject_option_map som
@@ -327,31 +312,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 WHERE som.subject_id = %s
                 """,
                 (state.get("subject_id"),),
-                "اختر نوع المحتوى:",
+                "اختر نوع المحتوى:"
             ),
-            "option": (
-                "subject",
+            "option": ("subject",
                 "SELECT name FROM subjects WHERE grade_id = %s",
                 (state.get("grade_id"),),
-                "اختر المادة:",
+                "اختر المادة:"
             ),
-            "subject": (
-                "grade",
+            "subject": ("grade",
                 "SELECT name FROM grades WHERE term_id = %s",
                 (state.get("term_id"),),
-                "اختر الصف:",
+                "اختر الصف:"
             ),
-            "grade": (
-                "term",
+            "grade": ("term",
                 "SELECT name FROM terms WHERE stage_id = %s",
                 (state.get("stage_id"),),
-                "اختر الفصل:",
+                "اختر الفصل:"
             ),
-            "term": (
-                "stage",
+            "term": ("stage",
                 "SELECT name FROM stages ORDER BY id",
                 (),
-                "اختر المرحلة:",
+                "اختر المرحلة:"
             ),
         }
 
@@ -366,11 +347,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return await start(update, context)
 
-    # ---------------- STAGE ----------------
+    # -------- STAGE --------
     if step == "stage":
         row = db_fetch_one(
-            "SELECT id FROM stages WHERE name = %s",
-            (text,),
+            "SELECT id FROM stages WHERE name = %s", (text,)
         )
         if not row:
             return
@@ -386,7 +366,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "اختر الفصل:", reply_markup=make_keyboard(names)
         )
 
-    # ---------------- TERM ----------------
+    # -------- TERM --------
     if step == "term":
         row = db_fetch_one(
             "SELECT id FROM terms WHERE name = %s AND stage_id = %s",
@@ -406,7 +386,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "اختر الصف:", reply_markup=make_keyboard(names)
         )
 
-    # ---------------- GRADE ----------------
+    # -------- GRADE --------
     if step == "grade":
         row = db_fetch_one(
             "SELECT id FROM grades WHERE name = %s AND term_id = %s",
@@ -426,7 +406,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "اختر المادة:", reply_markup=make_keyboard(names)
         )
 
-    # ---------------- SUBJECT ----------------
+    # -------- SUBJECT --------
     if step == "subject":
         row = db_fetch_one(
             "SELECT id FROM subjects WHERE name = %s AND grade_id = %s",
@@ -447,11 +427,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (state["subject_id"],),
         )
         names = [o["name"] for o in opts]
+
         return await update.message.reply_text(
             "اختر نوع المحتوى:", reply_markup=make_keyboard(names)
         )
 
-    # ---------------- OPTION ----------------
+    # -------- OPTION --------
     if step == "option":
         row = db_fetch_one(
             "SELECT id FROM subject_options WHERE name = %s",
@@ -467,11 +448,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (state["option_id"],),
         )
         names = [c["name"] for c in children]
+
         return await update.message.reply_text(
             "اختر القسم:", reply_markup=make_keyboard(names)
         )
 
-    # ---------------- SUBOPTION (child) ----------------
+    # -------- SUBOPTION --------
     if step == "suboption":
         row = db_fetch_one(
             "SELECT id FROM option_children WHERE name = %s AND option_id = %s",
@@ -493,10 +475,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر القسم الفرعي:", reply_markup=make_keyboard(names)
             )
 
-        # لا يوجد أقسام فرعية → اعرض المحتوى مباشرة
         return await send_resources(update, state)
 
-    # ---------------- SUBCHILD ----------------
+    # -------- SUBCHILD --------
     if step == "subchild":
         row = db_fetch_one(
             "SELECT id FROM option_subchildren WHERE name = %s AND child_id = %s",
@@ -505,6 +486,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not row:
             return
         state["subchild_id"] = row["id"]
+
         return await send_resources(update, state)
 
 
@@ -513,31 +495,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 app = FastAPI(title="Edu Bot API")
 
-# خدمة ملفات PDF
+# Static files for uploaded PDFs
 app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """تشغيل بوت تيليجرام مع FastAPI."""
     log.info("🚀 Initializing Telegram application...")
-    tg_app = Application.builder().token(BOT_TOKEN).build()
 
+    tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
+    # Set webhook ONLY
     await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
+
+    # store Telegram app
     app.state.tg_application = tg_app
 
-    async with tg_app:
-        await tg_app.start()
-        log.info("✅ Telegram Application started")
-        yield
-        log.info("🛑 Stopping Telegram Application...")
-        await tg_app.stop()
-        log.info("✅ Telegram Application stopped")
+    yield
+
+    log.info("🔚 Lifespan ended (no restart)")
 
 
 app.router.lifespan_context = lifespan
@@ -545,7 +525,6 @@ app.router.lifespan_context = lifespan
 
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
-    """استقبال التحديثات من تيليجرام."""
     update = Update.de_json(await request.json(), app.state.tg_application.bot)
     await app.state.tg_application.process_update(update)
     return Response(status_code=200)
@@ -683,7 +662,7 @@ async def admin_add(
     if url.strip() and file and file.filename:
         raise HTTPException(
             status_code=400,
-            detail="اختاري رابط *أو* PDF فقط، وليس الاثنين معًا.",
+            detail="اختاري رابط أو PDF فقط، وليس الاثنين معًا."
         )
 
     final_url = url.strip()
@@ -697,12 +676,11 @@ async def admin_add(
     if not final_url:
         raise HTTPException(
             status_code=400,
-            detail="يجب إدخال رابط أو رفع ملف PDF.",
+            detail="يجب إدخال رابط أو رفع ملف PDF."
         )
 
     sub_val = int(subchild_id) if subchild_id.strip() else None
 
-    # منع التكرار
     dup = db_fetch_one(
         """
         SELECT id FROM resources
@@ -715,15 +693,9 @@ async def admin_add(
           AND title = %s
         """,
         (
-            stage_id,
-            term_id,
-            grade_id,
-            subject_id,
-            option_id,
-            child_id,
-            sub_val,
-            sub_val,
-            title,
+            stage_id, term_id, grade_id,
+            subject_id, option_id, child_id,
+            sub_val, sub_val, title
         ),
     )
 
@@ -772,15 +744,9 @@ async def admin_add(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
-            subject_id,
-            option_id,
-            child_id,
-            title,
-            final_url,
-            sub_val,
-            stage_id,
-            term_id,
-            grade_id,
+            subject_id, option_id, child_id,
+            title, final_url, sub_val,
+            stage_id, term_id, grade_id,
         ),
     )
 
@@ -816,7 +782,7 @@ def admin_edit_page(rid: int):
                 <label class="mt-2">العنوان:</label>
                 <input name="title" class="form-control" value="{r['title']}">
 
-                <label class="mt-3">الرابط (إن وجد):</label>
+                <label class="mt-3">الرابط:</label>
                 <input name="url" class="form-control" value="{r['url'] or ''}">
 
                 <label class="mt-3">رفع PDF جديد (اختياري):</label>
@@ -825,7 +791,7 @@ def admin_edit_page(rid: int):
                 <button class="btn btn-success mt-4">💾 حفظ التعديلات</button>
             </form>
 
-            <a href="/admin" class="btn btn-secondary mt-3">⬅️ رجوع للوحة التحكم</a>
+            <a href="/admin" class="btn btn-secondary mt-3">⬅️ رجوع</a>
         </body>
         </html>
         """
@@ -852,7 +818,7 @@ async def admin_edit_save(
     if not final_url:
         raise HTTPException(
             status_code=400,
-            detail="يجب إدخال رابط أو رفع ملف.",
+            detail="يجب إدخال رابط أو رفع ملف."
         )
 
     db_execute(
