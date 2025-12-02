@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 import json
 
 import psycopg2
-from psycopg2.extras import DictCursor
-
 from fastapi import FastAPI, Request, Response, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +22,7 @@ from telegram.ext import (
 from dotenv import load_dotenv
 
 # ============================================================
-#   ENV & DB
+#   ENV & DB CONFIG
 # ============================================================
 load_dotenv()
 
@@ -37,18 +35,47 @@ APP_URL = os.environ.get("APP_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-if not BOT_TOKEN or not APP_URL or not DATABASE_URL:
-    raise RuntimeError("❌ BOT_TOKEN أو APP_URL أو DATABASE_URL مفقود!")
+if not BOT_TOKEN or not APP_URL:
+    raise RuntimeError("❌ BOT_TOKEN or APP_URL missing!")
 
-print("📌 USING DATABASE_URL =", DATABASE_URL)
+if not DATABASE_URL:
+    raise RuntimeError("❌ DATABASE_URL missing for PostgreSQL!")
 
-# اتصال PostgreSQL
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = False  # هنستخدم conn.commit() يدويًا
-cursor = conn.cursor()   # عادي (tuples)
+# طباعة مختصرة بدون الباسورد
+safe_db = DATABASE_URL.split("@")[-1]
+print("📌 USING DATABASE_URL =", safe_db)
 
-logging.basicConfig(level=logging.INFO)
+# ============================================================
+#   POSTGRESQL CONNECTION
+# ============================================================
+try:
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+except Exception as e:
+    raise RuntimeError(f"❌ Cannot connect to PostgreSQL: {e}")
+
 log = logging.getLogger("EDU_BOT")
+logging.basicConfig(level=logging.INFO)
+
+# ============================================================
+#   SIMPLE DB HELPERS
+# ============================================================
+def db_fetch_all(query: str, params=()):
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+        return cur.fetchall()
+
+
+def db_fetch_one(query: str, params=()):
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+        return cur.fetchone()
+
+
+def db_execute(query: str, params=()):
+    with conn.cursor() as cur:
+        cur.execute(query, params)
+
 
 # ============================================================
 #   FASTAPI APP
@@ -56,7 +83,7 @@ log = logging.getLogger("EDU_BOT")
 app = FastAPI()
 app.state.tg_application = None
 
-# تقديم ملفات الـ PDF من /uploads تحت /files
+# Serve uploaded files
 app.mount(
     "/files",
     StaticFiles(directory=UPLOAD_DIR),
@@ -69,25 +96,25 @@ app.mount(
 user_state: dict[int, dict] = {}
 
 # ============================================================
-#   KEYBOARD MAKER — RTL + أسماء فقط
+#   KEYBOARD MAKER — RTL (NAMES ONLY)
 # ============================================================
 def make_keyboard(options):
     """
     options يمكن أن تكون:
-      - tuples مثل: (id, name) أو (id, name, extra...)
-      - أو (name,) فقط
-      - أو strings جاهزة
+      - (id, name) أو (id, name, extra...)
+      - (name,) فقط
+      - أو strings مباشرة
 
-    نحولها إلى:
+    نرجع:
       [ ['زر1', 'زر2'], ['زر3'], ['رجوع ↩️'] ]
-    مع عكس أفقي (RTL) بحيث يكون أول خيار على اليمين.
+    مع عكس أفقي حتى يكون أول عنصر على اليمين.
     """
-    labels: list[str] = []
+    labels = []
 
     for opt in options:
         if isinstance(opt, (tuple, list)):
             if len(opt) >= 2:
-                labels.append(str(opt[1]))   # نأخذ الاسم فقط
+                labels.append(str(opt[1]))   # نأخذ name فقط
             elif len(opt) == 1:
                 labels.append(str(opt[0]))
         else:
@@ -95,10 +122,10 @@ def make_keyboard(options):
 
     labels = [lbl for lbl in labels if lbl.strip()]
 
-    rows: list[list[str]] = []
+    rows = []
     for i in range(0, len(labels), 2):
-        row = labels[i:i + 2]
-        row.reverse()   # عكس عشان يظهر أول عنصر على اليمين
+        row = labels[i : i + 2]
+        row.reverse()  # RTL
         rows.append(row)
 
     rows.append(["رجوع ↩️"])
@@ -106,7 +133,7 @@ def make_keyboard(options):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 # ============================================================
-#   START COMMAND
+#   /start COMMAND
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -118,21 +145,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 *اختر المرحلة للبدء:*"
     )
 
-    cursor.execute("SELECT id, name FROM stages ORDER BY id")
-    stages = cursor.fetchall()
+    stages = db_fetch_all("SELECT id, name FROM stages ORDER BY id")
 
     await update.message.reply_text(
         welcome,
         reply_markup=make_keyboard(stages),
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
 
 # ============================================================
-#   MAIN BOT HANDLER
+#   MAIN TELEGRAM HANDLER
 # ============================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    text = update.message.text
+    text = update.message.text.strip()
 
     if chat_id not in user_state:
         return await start(update, context)
@@ -142,184 +168,187 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- زر الرجوع ----------------
     if text == "رجوع ↩️":
+        step = state.get("step")
 
-        if state.get("step") == "subchild":
+        if step == "subchild":
             state["step"] = "suboption"
-            cursor.execute(
-                "SELECT id, name FROM option_children WHERE option_id=%s",
+            opts = db_fetch_all(
+                "SELECT id, name FROM option_children WHERE option_id = %s",
                 (state["option_id"],),
             )
             return await update.message.reply_text(
-                "اختر القسم:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر القسم:", reply_markup=make_keyboard(opts)
             )
 
-        if state.get("step") == "suboption":
+        if step == "suboption":
             state["step"] = "option"
-            cursor.execute(
+            opts = db_fetch_all(
                 """
-                SELECT subject_options.id, subject_options.name
-                FROM subject_option_map
-                JOIN subject_options ON subject_options.id = subject_option_map.option_id
-                WHERE subject_option_map.subject_id=%s
+                SELECT so.id, so.name
+                FROM subject_option_map som
+                JOIN subject_options so ON so.id = som.option_id
+                WHERE som.subject_id = %s
                 """,
                 (state["subject_id"],),
             )
             return await update.message.reply_text(
-                "اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر نوع المحتوى:", reply_markup=make_keyboard(opts)
             )
 
-        if state.get("step") == "option":
+        if step == "option":
             state["step"] = "subject"
-            cursor.execute(
-                "SELECT id, name FROM subjects WHERE grade_id=%s",
+            subs = db_fetch_all(
+                "SELECT id, name FROM subjects WHERE grade_id = %s",
                 (state["grade_id"],),
             )
             return await update.message.reply_text(
-                "اختر المادة:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر المادة:", reply_markup=make_keyboard(subs)
             )
 
-        if state.get("step") == "subject":
+        if step == "subject":
             state["step"] = "grade"
-            cursor.execute(
-                "SELECT id, name FROM grades WHERE term_id=%s",
+            grades = db_fetch_all(
+                "SELECT id, name FROM grades WHERE term_id = %s",
                 (state["term_id"],),
             )
             return await update.message.reply_text(
-                "اختر الصف:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر الصف:", reply_markup=make_keyboard(grades)
             )
 
-        if state.get("step") == "grade":
+        if step == "grade":
             state["step"] = "term"
-            cursor.execute(
-                "SELECT id, name FROM terms WHERE stage_id=%s",
+            terms = db_fetch_all(
+                "SELECT id, name FROM terms WHERE stage_id = %s",
                 (state["stage_id"],),
             )
             return await update.message.reply_text(
-                "اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر الفصل:", reply_markup=make_keyboard(terms)
             )
 
-        if state.get("step") == "term":
+        if step == "term":
             state["step"] = "stage"
-            cursor.execute("SELECT id, name FROM stages ORDER BY id")
+            stages = db_fetch_all("SELECT id, name FROM stages ORDER BY id")
             return await update.message.reply_text(
-                "اختر المرحلة:", reply_markup=make_keyboard(cursor.fetchall())
+                "اختر المرحلة:", reply_markup=make_keyboard(stages)
             )
 
+        # Fallback
         return await start(update, context)
 
     # ---------------- المرحلة ----------------
     if state["step"] == "stage":
-        cursor.execute("SELECT id FROM stages WHERE name=%s", (text,))
-        row = cursor.fetchone()
+        row = db_fetch_one(
+            "SELECT id FROM stages WHERE name = %s",
+            (text,),
+        )
         if not row:
             return
         state["stage_id"] = row[0]
         state["step"] = "term"
-        cursor.execute(
-            "SELECT id, name FROM terms WHERE stage_id=%s",
+
+        terms = db_fetch_all(
+            "SELECT id, name FROM terms WHERE stage_id = %s",
             (state["stage_id"],),
         )
         return await update.message.reply_text(
-            "اختر الفصل:", reply_markup=make_keyboard(cursor.fetchall())
+            "اختر الفصل:", reply_markup=make_keyboard(terms)
         )
 
     # ---------------- الفصل ----------------
     if state["step"] == "term":
-        cursor.execute(
-            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
+        row = db_fetch_one(
+            "SELECT id FROM terms WHERE name = %s AND stage_id = %s",
             (text, state["stage_id"]),
         )
-        row = cursor.fetchone()
         if not row:
             return
         state["term_id"] = row[0]
         state["step"] = "grade"
-        cursor.execute(
-            "SELECT id, name FROM grades WHERE term_id=%s",
+
+        grades = db_fetch_all(
+            "SELECT id, name FROM grades WHERE term_id = %s",
             (state["term_id"],),
         )
         return await update.message.reply_text(
-            "اختر الصف:", reply_markup=make_keyboard(cursor.fetchall())
+            "اختر الصف:", reply_markup=make_keyboard(grades)
         )
 
     # ---------------- الصف ----------------
     if state["step"] == "grade":
-        cursor.execute(
-            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
+        row = db_fetch_one(
+            "SELECT id FROM grades WHERE name = %s AND term_id = %s",
             (text, state["term_id"]),
         )
-        row = cursor.fetchone()
         if not row:
             return
         state["grade_id"] = row[0]
         state["step"] = "subject"
-        cursor.execute(
-            "SELECT id, name FROM subjects WHERE grade_id=%s",
+
+        subs = db_fetch_all(
+            "SELECT id, name FROM subjects WHERE grade_id = %s",
             (state["grade_id"],),
         )
         return await update.message.reply_text(
-            "اختر المادة:", reply_markup=make_keyboard(cursor.fetchall())
+            "اختر المادة:", reply_markup=make_keyboard(subs)
         )
 
     # ---------------- المادة ----------------
     if state["step"] == "subject":
-        cursor.execute(
-            "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
+        row = db_fetch_one(
+            "SELECT id FROM subjects WHERE name = %s AND grade_id = %s",
             (text, state["grade_id"]),
         )
-        row = cursor.fetchone()
         if not row:
             return
         state["subject_id"] = row[0]
         state["step"] = "option"
-        cursor.execute(
+
+        opts = db_fetch_all(
             """
-            SELECT subject_options.id, subject_options.name
-            FROM subject_option_map
-            JOIN subject_options ON subject_options.id = subject_option_map.option_id
-            WHERE subject_option_map.subject_id=%s
+            SELECT so.id, so.name
+            FROM subject_option_map som
+            JOIN subject_options so ON so.id = som.option_id
+            WHERE som.subject_id = %s
             """,
             (state["subject_id"],),
         )
         return await update.message.reply_text(
-            "اختر نوع المحتوى:", reply_markup=make_keyboard(cursor.fetchall())
+            "اختر نوع المحتوى:", reply_markup=make_keyboard(opts)
         )
 
     # ---------------- OPTION ----------------
     if state["step"] == "option":
-        cursor.execute(
-            "SELECT id FROM subject_options WHERE name=%s",
+        row = db_fetch_one(
+            "SELECT id FROM subject_options WHERE name = %s",
             (text,),
         )
-        row = cursor.fetchone()
         if not row:
             return
         state["option_id"] = row[0]
         state["step"] = "suboption"
-        cursor.execute(
-            "SELECT id, name FROM option_children WHERE option_id=%s",
+
+        children = db_fetch_all(
+            "SELECT id, name FROM option_children WHERE option_id = %s",
             (state["option_id"],),
         )
         return await update.message.reply_text(
-            "اختر القسم:", reply_markup=make_keyboard(cursor.fetchall())
+            "اختر القسم:", reply_markup=make_keyboard(children)
         )
 
     # ---------------- SUBOPTION ----------------
     if state["step"] == "suboption":
-        cursor.execute(
-            "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
+        row = db_fetch_one(
+            "SELECT id FROM option_children WHERE name = %s AND option_id = %s",
             (text, state["option_id"]),
         )
-        row = cursor.fetchone()
         if not row:
             return
         state["child_id"] = row[0]
 
-        cursor.execute(
-            "SELECT id, name FROM option_subchildren WHERE child_id=%s",
+        subs = db_fetch_all(
+            "SELECT id, name FROM option_subchildren WHERE child_id = %s",
             (state["child_id"],),
         )
-        subs = cursor.fetchall()
 
         if subs:
             state["step"] = "subchild"
@@ -327,14 +356,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "اختر القسم الفرعي:", reply_markup=make_keyboard(subs)
             )
 
-        # لو مفيش subchildren → روابط مباشرة
-        cursor.execute(
+        # لا يوجد أقسام فرعية → اعرض الروابط مباشرة
+        resources = db_fetch_all(
             """
             SELECT title, url
             FROM resources
-            WHERE stage_id=%s AND term_id=%s AND grade_id=%s
-              AND subject_id=%s AND option_id=%s AND child_id=%s
-              AND (subchild_id IS NULL OR subchild_id=0)
+            WHERE stage_id = %s AND term_id = %s AND grade_id = %s
+              AND subject_id = %s AND option_id = %s AND child_id = %s
+              AND (subchild_id IS NULL OR subchild_id = 0)
             """,
             (
                 state["stage_id"],
@@ -345,7 +374,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 state["child_id"],
             ),
         )
-        resources = cursor.fetchall()
 
         if not resources:
             return await update.message.reply_text("لا يوجد محتوى.")
@@ -357,21 +385,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ---------------- SUBCHILD ----------------
     if state["step"] == "subchild":
-        cursor.execute(
-            "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
+        row = db_fetch_one(
+            "SELECT id FROM option_subchildren WHERE name = %s AND child_id = %s",
             (text, state["child_id"]),
         )
-        row = cursor.fetchone()
         if not row:
             return
         subchild_id = row[0]
 
-        cursor.execute(
+        resources = db_fetch_all(
             """
             SELECT title, url
             FROM resources
-            WHERE stage_id=%s AND term_id=%s AND grade_id=%s
-              AND subject_id=%s AND option_id=%s AND child_id=%s AND subchild_id=%s
+            WHERE stage_id = %s AND term_id = %s AND grade_id = %s
+              AND subject_id = %s AND option_id = %s AND child_id = %s
+              AND subchild_id = %s
             """,
             (
                 state["stage_id"],
@@ -383,7 +411,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subchild_id,
             ),
         )
-        resources = cursor.fetchall()
 
         if not resources:
             return await update.message.reply_text("لا يوجد محتوى.")
@@ -420,13 +447,11 @@ async def lifespan(app: FastAPI):
 
 app.router.lifespan_context = lifespan
 
-
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
     update = Update.de_json(await request.json(), app.state.tg_application.bot)
     await app.state.tg_application.process_update(update)
     return Response(status_code=200)
-
 
 @app.get("/")
 def root():
@@ -436,8 +461,7 @@ def root():
 #   ADMIN HELPERS
 # ============================================================
 def _fetch_all(query, params=()):
-    cursor.execute(query, params)
-    return cursor.fetchall()
+    return db_fetch_all(query, params)
 
 # ============================================================
 #   ADMIN PANEL PAGE
@@ -503,7 +527,7 @@ def admin_form():
     subchildren_json = [{"id": sc[0], "name": sc[1], "child_id": sc[2]} for sc in subchildren]
     subj_opt_map_json= [{"subject_id": m[0], "option_id": m[1]} for m in subj_opt_map]
 
-    html = open("admin_template.html", "r", encoding="utf-8").read()
+    html = open(os.path.join(BASE_DIR, "admin_template.html"), "r", encoding="utf-8").read()
     html = (
         html.replace("__ROWS__", rows)
             .replace("__STAGES__", json.dumps(stages_json, ensure_ascii=False))
@@ -541,6 +565,7 @@ async def admin_add(
     subchild_val = int(subchild_id) if subchild_id.strip() else None
     final_url = url.strip()
 
+    # ملف مرفوع؟
     if file and file.filename:
         save_path = os.path.join(UPLOAD_DIR, file.filename)
 
@@ -555,27 +580,35 @@ async def admin_add(
     if not final_url:
         return HTMLResponse("❌ يجب إضافة رابط أو PDF", status_code=400)
 
-    # منع التكرار: نستخدم COALESCE لمقارنة subchild_id (NULL أو رقم)
-    cursor.execute(
+    # منع التكرار: نفس العنصر موجود؟
+    dup_row = db_fetch_one(
         """
         SELECT id FROM resources
-        WHERE stage_id=%s AND term_id=%s AND grade_id=%s
-          AND subject_id=%s AND option_id=%s AND child_id=%s
-          AND COALESCE(subchild_id, 0) = COALESCE(%s, 0)
-          AND title=%s
+        WHERE stage_id = %s AND term_id = %s AND grade_id = %s
+          AND subject_id = %s AND option_id = %s AND child_id = %s
+          AND (
+                (%s IS NULL AND subchild_id IS NULL)
+             OR subchild_id = %s
+          )
+          AND title = %s
         """,
         (
-            stage_id, term_id, grade_id,
-            subject_id, option_id, child_id,
+            stage_id,
+            term_id,
+            grade_id,
+            subject_id,
+            option_id,
+            child_id,
+            subchild_val,
             subchild_val,
             title,
         ),
     )
-    row = cursor.fetchone()
 
-    if row:
-        rid = row[0]
-        return HTMLResponse(f"""
+    if dup_row:
+        rid = dup_row[0]
+        return HTMLResponse(
+            f"""
             <html dir='rtl'><body style="font-family:Tahoma; padding:20px;">
             <h3>⚠️ هذا المحتوى موجود بالفعل</h3>
             <p>يمكنك تعديل العنصر أو حذفه:</p>
@@ -602,21 +635,31 @@ async def admin_add(
                 </button>
             </a>
             </body></html>
-        """)
+            """
+        )
 
-    cursor.execute("""
+    # INSERT فعلي
+    db_execute(
+        """
         INSERT INTO resources (
             subject_id, option_id, child_id,
             title, url, subchild_id,
             stage_id, term_id, grade_id
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (
-        subject_id, option_id, child_id,
-        title, final_url, subchild_val,
-        stage_id, term_id, grade_id,
-    ))
-    conn.commit()
+        """,
+        (
+            subject_id,
+            option_id,
+            child_id,
+            title,
+            final_url,
+            subchild_val,
+            stage_id,
+            term_id,
+            grade_id,
+        ),
+    )
 
     return RedirectResponse("/admin", status_code=303)
 
@@ -625,8 +668,7 @@ async def admin_add(
 # ============================================================
 @app.post("/admin/delete/{rid}")
 def delete_resource(rid: int):
-    cursor.execute("DELETE FROM resources WHERE id=%s", (rid,))
-    conn.commit()
+    db_execute("DELETE FROM resources WHERE id = %s", (rid,))
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
@@ -634,15 +676,16 @@ def delete_resource(rid: int):
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def admin_edit_page(rid: int):
-    cursor.execute("SELECT title, url FROM resources WHERE id=%s", (rid,))
-    row = cursor.fetchone()
-
+    row = db_fetch_one(
+        "SELECT title, url FROM resources WHERE id = %s", (rid,)
+    )
     if not row:
         return HTMLResponse("❌ غير موجود", status_code=404)
 
     title, url = row
 
-    return HTMLResponse(f"""
+    return HTMLResponse(
+        f"""
         <html dir='rtl'>
         <head>
             <meta charset="utf-8">
@@ -666,7 +709,8 @@ def admin_edit_page(rid: int):
 
         <a href="/admin" class="btn btn-secondary mt-3">رجوع</a>
         </body></html>
-    """)
+        """
+    )
 
 # ============================================================
 #   EDIT SAVE
@@ -691,10 +735,9 @@ async def admin_edit_save(
 
         final_url = f"{APP_URL}/files/{file.filename}"
 
-    cursor.execute(
-        "UPDATE resources SET title=%s, url=%s WHERE id=%s",
+    db_execute(
+        "UPDATE resources SET title = %s, url = %s WHERE id = %s",
         (title, final_url, rid),
     )
-    conn.commit()
 
     return RedirectResponse("/admin", status_code=303)
