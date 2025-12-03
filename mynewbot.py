@@ -374,13 +374,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
 # ============================================================
-#   TELEGRAM LIFESPAN (RENDER COMPATIBLE)
+#   TELEGRAM LIFESPAN (RENDER COMPATIBLE + NO FLOOD)
 # ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Create telegram Application once per process,
-    set webhook, and store it in app.state.tg
+    set webhook only if not already set (prevent Flood control)
     """
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
@@ -391,11 +391,21 @@ async def lifespan(app: FastAPI):
     await tg_app.initialize()
     await tg_app.start()
 
-    # set webhook for Render URL
-    await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
+    # ---------------------------------------------
+    #   🔥 Anti-Flood Webhook Fix
+    #   فقط حدّدي الـ webhook إذا مش موجود أو مختلف
+    # ---------------------------------------------
+    current = await tg_app.bot.get_webhook_info()
+    target_url = f"{APP_URL}/telegram"
+
+    if current.url != target_url:
+        await tg_app.bot.set_webhook(url=target_url)
+        log.info(f"🌐 Webhook updated → {target_url}")
+    else:
+        log.info("🌐 Webhook already set — skipped ✔️")
 
     app.state.tg = tg_app
-    log.info("🤖 Telegram bot started & webhook set.")
+    log.info("🤖 Telegram bot started.")
 
     try:
         yield
@@ -403,15 +413,6 @@ async def lifespan(app: FastAPI):
         log.info("🛑 Stopping Telegram bot...")
         await tg_app.stop()
         await tg_app.shutdown()
-
-
-# ============================================================
-#   CREATE APP WITH LIFESPAN
-# ============================================================
-app = FastAPI(title="Edu Bot API", lifespan=lifespan)
-
-# serve uploaded files
-app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 
 # ============================================================
