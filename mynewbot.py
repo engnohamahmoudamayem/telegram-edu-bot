@@ -493,7 +493,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 #   FASTAPI APP + TELEGRAM WEBHOOK
 # ============================================================
-app = FastAPI(title="Edu Bot API")
+app = FastAPI(title="Edu Bot API", lifespan=lifespan)
 
 # Static files for uploaded PDFs
 app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
@@ -501,39 +501,46 @@ app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("🚀 Initializing Telegram application...")
+    log.info("🚀 Initializing Telegram bot...")
 
+    # 1) Create Telegram Application ONCE
     tg_app = Application.builder().token(BOT_TOKEN).build()
+
+    # 2) Register Handlers
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
     )
 
-    # Set webhook ONLY
+    # 3) Initialize the Application (IMPORTANT)
+    await tg_app.initialize()
+
+    # 4) Start Telegram Application (REQUIRED)
+    await tg_app.start()
+
+    # 5) Set webhook AFTER start
     await tg_app.bot.set_webhook(url=f"{APP_URL}/telegram")
 
-    # store Telegram app
+    # 6) Save the Application so webhook can use it
     app.state.tg_application = tg_app
+
+    log.info("✅ Bot is running & webhook is active.")
 
     yield
 
-    log.info("🔚 Lifespan ended (no restart)")
+    # 7) Clean shutdown
+    log.info("🛑 Stopping Telegram bot...")
+    await tg_app.stop()
+    await tg_app.shutdown()
 
-
-app.router.lifespan_context = lifespan
-
-
+# ============================================================
+#   TELEGRAM WEBHOOK ENDPOINT
+# ============================================================
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
     update = Update.de_json(await request.json(), app.state.tg_application.bot)
     await app.state.tg_application.process_update(update)
     return Response(status_code=200)
-
-
-@app.get("/")
-def root():
-    return {"status": "running"}
-
 
 # ============================================================
 #   ADMIN PANEL HELPERS
