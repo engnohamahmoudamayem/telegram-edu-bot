@@ -216,8 +216,6 @@ async def send_resources(update: Update, st: dict):
     await update.message.reply_text(
         msg, parse_mode="HTML", disable_web_page_preview=True
     )
-
-
 # ============================================================
 #   /START COMMAND
 # ============================================================
@@ -252,28 +250,37 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     #     BACK BUTTON LOGIC
     # ===============================
     if text == "رجوع ↩️":
+
         # --- If in subchild → go to suboption
         if step == "subchild":
             st["step"] = "suboption"
-            rows = db_fetch_all("SELECT name FROM option_subchildren WHERE child_id=%s", (st["child_id"],))
-            return await update.message.reply_text(
-                "اختر القسم الفرعي:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
-            )
-
-        # --- If in suboption → go to option
-        if step == "suboption":
-            st["step"] = "option"
             rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (st["option_id"],))
             return await update.message.reply_text(
                 "اختر القسم:",
                 reply_markup=make_keyboard([r["name"] for r in rows])
             )
 
+        # --- If in suboption → go to option
+        if step == "suboption":
+            st["step"] = "option"
+            rows = db_fetch_all(
+                """
+                SELECT so.name
+                FROM subject_option_map som
+                JOIN subject_options so ON so.id = som.option_id
+                WHERE som.subject_id=%s
+                """,
+                (st["subject_id"],),
+            )
+            return await update.message.reply_text(
+                "اختر نوع المحتوى:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
         # --- If in option → go to subject
         if step == "option":
             st["step"] = "subject"
-            rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"]),)
+            rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"],))
             return await update.message.reply_text(
                 "اختر المادة:",
                 reply_markup=make_keyboard([r["name"] for r in rows])
@@ -310,6 +317,54 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if step == "stage":
             return await start(update, ctx)
 
+    # ============================================================
+    #   NORMAL FLOW
+    # ============================================================
+
+    # stage
+    if step == "stage":
+        row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
+        if not row:
+            return
+        st["stage_id"] = row["id"]
+        st["step"] = "term"
+
+        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # term
+    if step == "term":
+        row = db_fetch_one(
+            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
+            (text, st["stage_id"]),
+        )
+        if not row:
+            return
+        st["term_id"] = row["id"]
+        st["step"] = "grade"
+
+        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # grade
+    if step == "grade":
+        row = db_fetch_one(
+            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
+            (text, st["term_id"]),
+        )
+        if not row:
+            return
+        st["grade_id"] = row["id"]
+        st["step"] = "subject"
+
+        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
 
     # subject
     if step == "subject":
@@ -387,8 +442,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
-
-
 # ============================================================
 #   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE)
 # ============================================================
@@ -399,9 +452,11 @@ async def lifespan(app: FastAPI):
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # start bot safely
     await tg_app.initialize()
     await tg_app.start()
 
+    # Set webhook only if changed
     target_url = f"{APP_URL}/telegram"
     current = await tg_app.bot.get_webhook_info()
 
@@ -421,7 +476,7 @@ async def lifespan(app: FastAPI):
 
 
 # ============================================================
-#   CREATE FASTAPI APP  ← مهم جداً
+#   CREATE FASTAPI APP
 # ============================================================
 app = FastAPI(title="Edu Bot API", lifespan=lifespan)
 
@@ -436,8 +491,10 @@ app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 async def telegram_webhook(request: Request):
     data = await request.json()
     tg_app = request.app.state.tg
+
     update = Update.de_json(data, tg_app.bot)
     await tg_app.process_update(update)
+
     return Response(status_code=200)
 
 
@@ -617,6 +674,7 @@ def edit_page(rid: int):
 
         <button class="btn btn-success mt-3">حفظ</button>
     </form>
+
     <a href="/admin" class="btn btn-secondary mt-3">رجوع</a>
     </body></html>
     """)
