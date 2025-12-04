@@ -213,7 +213,9 @@ async def send_resources(update: Update, st: dict):
         return await update.message.reply_text("لا يوجد محتوى.")
 
     msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
-    await update.message.reply_text(msg, parse_mode="HTML", disable_web_page_preview=True)
+    await update.message.reply_text(
+        msg, parse_mode="HTML", disable_web_page_preview=True
+    )
 
 
 # ============================================================
@@ -231,6 +233,202 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=make_keyboard(names),
         parse_mode="Markdown",
     )
+
+
+# ============================================================
+#   MAIN MESSAGE HANDLER
+# ============================================================
+async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    cid = update.effective_chat.id
+    text = (update.message.text or "").strip()
+
+    if cid not in user_state:
+        return await start(update, ctx)
+
+    st = user_state[cid]
+    step = st["step"]
+
+    if text == "رجوع ↩️":
+        return await start(update, ctx)
+
+    # stage
+    if step == "stage":
+        row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
+        if not row:
+            return
+        st["stage_id"] = row["id"]
+        st["step"] = "term"
+
+        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # term
+    if step == "term":
+        row = db_fetch_one(
+            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
+            (text, st["stage_id"]),
+        )
+        if not row:
+            return
+        st["term_id"] = row["id"]
+        st["step"] = "grade"
+
+        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # grade
+    if step == "grade":
+        row = db_fetch_one(
+            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
+            (text, st["term_id"]),
+        )
+        if not row:
+            return
+        st["grade_id"] = row["id"]
+        st["step"] = "subject"
+
+        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # subject
+    if step == "subject":
+        row = db_fetch_one(
+            "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
+            (text, st["grade_id"]),
+        )
+        if not row:
+            return
+        st["subject_id"] = row["id"]
+        st["step"] = "option"
+
+        rows = db_fetch_all(
+            """
+            SELECT so.name
+            FROM subject_option_map som
+            JOIN subject_options so ON so.id = som.option_id
+            WHERE som.subject_id=%s
+            """,
+            (row["id"],),
+        )
+        return await update.message.reply_text(
+            "اختر نوع المحتوى:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # option
+    if step == "option":
+        row = db_fetch_one(
+            "SELECT id FROM subject_options WHERE name=%s",
+            (text,),
+        )
+        if not row:
+            return
+        st["option_id"] = row["id"]
+        st["step"] = "suboption"
+
+        rows = db_fetch_all(
+            "SELECT name FROM option_children WHERE option_id=%s",
+            (row["id"],),
+        )
+        return await update.message.reply_text(
+            "اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # suboption
+    if step == "suboption":
+        row = db_fetch_one(
+            "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
+            (text, st["option_id"]),
+        )
+        if not row:
+            return
+        st["child_id"] = row["id"]
+
+        rows = db_fetch_all(
+            "SELECT name FROM option_subchildren WHERE child_id=%s",
+            (row["id"],),
+        )
+        if rows:
+            st["step"] = "subchild"
+            return await update.message.reply_text(
+                "اختر القسم الفرعي:",
+                reply_markup=make_keyboard([r["name"] for r in rows]),
+            )
+
+        return await send_resources(update, st)
+
+    # subchild
+    if step == "subchild":
+        row = db_fetch_one(
+            "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
+            (text, st["child_id"]),
+        )
+        if not row:
+            return
+        st["subchild_id"] = row["id"]
+        return await send_resources(update, st)
+
+
+# ============================================================
+#   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE)
+# ============================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    tg_app = Application.builder().token(BOT_TOKEN).build()
+    tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    await tg_app.initialize()
+    await tg_app.start()
+
+    target_url = f"{APP_URL}/telegram"
+    current = await tg_app.bot.get_webhook_info()
+
+    if current.url != target_url:
+        await tg_app.bot.set_webhook(url=target_url)
+        log.info(f"🌐 Webhook updated → {target_url}")
+    else:
+        log.info("🌐 Webhook already set — skipped")
+
+    app.state.tg = tg_app
+
+    try:
+        yield
+    finally:
+        await tg_app.stop()
+        await tg_app.shutdown()
+
+
+# ============================================================
+#   CREATE FASTAPI APP  ← مهم جداً
+# ============================================================
+app = FastAPI(title="Edu Bot API", lifespan=lifespan)
+
+# Serve uploaded files
+app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
+
+
+# ============================================================
+#   WEBHOOK ENDPOINT
+# ============================================================
+@app.post("/telegram")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    tg_app = request.app.state.tg
+
+    update = Update.de_json(data, tg_app.bot)
+    await tg_app.process_update(update)
+
+    return Response(status_code=200)
+
+
+
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -245,7 +443,9 @@ def build_resources_context():
     subjopt = db_fetch_all("SELECT subject_id, option_id FROM subject_option_map")
 
     resources = db_fetch_all("""
-        SELECT *
+        SELECT id, title, url,
+               stage_id, term_id, grade_id,
+               subject_id, option_id, child_id, subchild_id
         FROM resources
         ORDER BY id DESC
         LIMIT 200
@@ -270,13 +470,14 @@ def build_resources_context():
             <td>{subject_map.get(r['subject_id'], '')}</td>
             <td>{option_map.get(r['option_id'], '')}</td>
             <td>{child_map.get(r['child_id'], '')}</td>
-            <td>{sub_map.get(r['subchild_id'], '') if r.get('subchild_id') else ''}</td>
+            <td>{sub_map.get(r['subchild_id'], '') if r['subchild_id'] else ''}</td>
             <td>{r['title']}</td>
             <td><a href="{r['url']}" target="_blank">فتح</a></td>
             <td><a href="/admin/edit/{r['id']}" class="btn btn-warning btn-sm">تعديل</a></td>
             <td>
                 <form method="post" action="/admin/delete/{r['id']}">
-                    <input name="password" type="password" class="form-control form-control-sm mb-1" required>
+                    <input name="password" type="password"
+                           class="form-control form-control-sm mb-1" required>
                     <button class="btn btn-danger btn-sm">🗑️</button>
                 </form>
             </td>
@@ -358,12 +559,15 @@ async def admin_add(
         """
         INSERT INTO resources (
             subject_id, option_id, child_id, subchild_id,
-            stage_id, term_id, grade_id, title, url
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            stage_id, term_id, grade_id,
+            title, url
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             subject_id, option_id, child_id, sub_val,
-            stage_id, term_id, grade_id, title, final_url
+            stage_id, term_id, grade_id,
+            title, final_url,
         ),
     )
 
@@ -371,7 +575,7 @@ async def admin_add(
 
 
 # ============================================================
-#   ADMIN: EDIT RESOURCE
+#   ADMIN: EDIT PAGE
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def edit_page(rid: int):
@@ -401,7 +605,6 @@ def edit_page(rid: int):
 
         <button class="btn btn-success mt-3">حفظ</button>
     </form>
-
     <a href="/admin" class="btn btn-secondary mt-3">رجوع</a>
     </body></html>
     """)
@@ -436,7 +639,7 @@ async def save_edit(
 #   ADMIN: DELETE RESOURCE
 # ============================================================
 @app.post("/admin/delete/{rid}")
-def delete_resource(rid: int, password: str = Form(...)):
+def delete(rid: int, password: str = Form(...)):
     if password != ADMIN_PASSWORD:
         raise HTTPException(401, "كلمة السر خطأ!")
 
