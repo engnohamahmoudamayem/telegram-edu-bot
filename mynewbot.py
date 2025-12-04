@@ -248,84 +248,68 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     st = user_state[cid]
     step = st["step"]
 
+    # ===============================
+    #     BACK BUTTON LOGIC
+    # ===============================
     if text == "رجوع ↩️":
+        # --- If in subchild → go to suboption
         if step == "subchild":
-        st["step"] = "suboption"
-        rows = db_fetch_all("SELECT name FROM option_subchildren WHERE child_id=%s", (st["child_id"],))
-        return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard([r["name"] for r in rows]))
+            st["step"] = "suboption"
+            rows = db_fetch_all("SELECT name FROM option_subchildren WHERE child_id=%s", (st["child_id"],))
+            return await update.message.reply_text(
+                "اختر القسم الفرعي:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "suboption":
-        st["step"] = "option"
-        rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (st["option_id"],))
-        return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows]))
+        # --- If in suboption → go to option
+        if step == "suboption":
+            st["step"] = "option"
+            rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (st["option_id"],))
+            return await update.message.reply_text(
+                "اختر القسم:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "option":
-        st["step"] = "subject"
-        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"],))
-        return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows]))
+        # --- If in option → go to subject
+        if step == "option":
+            st["step"] = "subject"
+            rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"]),)
+            return await update.message.reply_text(
+                "اختر المادة:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "subject":
-        st["step"] = "grade"
-        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (st["term_id"],))
-        return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows]))
+        # --- If in subject → go to grade
+        if step == "subject":
+            st["step"] = "grade"
+            rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (st["term_id"],))
+            return await update.message.reply_text(
+                "اختر الصف:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "grade":
-        st["step"] = "term"
-        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (st["stage_id"],))
-        return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows]))
+        # --- If in grade → go to term
+        if step == "grade":
+            st["step"] = "term"
+            rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (st["stage_id"],))
+            return await update.message.reply_text(
+                "اختر الفصل:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "term":
-        st["step"] = "stage"
-        rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
-        return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard([r["name"] for r in rows]))
+        # --- If in term → go to stage
+        if step == "term":
+            st["step"] = "stage"
+            rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
+            return await update.message.reply_text(
+                "اختر المرحلة:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
 
-    if step == "stage":
-        return await start(update, ctx)
+        # --- If already in stage → restart bot
+        if step == "stage":
+            return await start(update, ctx)
 
-    # stage
-    if step == "stage":
-        row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
-        if not row:
-            return
-        st["stage_id"] = row["id"]
-        st["step"] = "term"
-
-        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
-        return await update.message.reply_text(
-            "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
-        )
-
-    # term
-    if step == "term":
-        row = db_fetch_one(
-            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
-            (text, st["stage_id"]),
-        )
-        if not row:
-            return
-        st["term_id"] = row["id"]
-        st["step"] = "grade"
-
-        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
-        return await update.message.reply_text(
-            "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
-        )
-
-    # grade
-    if step == "grade":
-        row = db_fetch_one(
-            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
-            (text, st["term_id"]),
-        )
-        if not row:
-            return
-        st["grade_id"] = row["id"]
-        st["step"] = "subject"
-
-        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
-        return await update.message.reply_text(
-            "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
-        )
 
     # subject
     if step == "subject":
