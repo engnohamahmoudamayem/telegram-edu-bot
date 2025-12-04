@@ -177,7 +177,7 @@ async def save_uploaded_file(file: UploadFile):
 # ============================================================
 #   BOT STATE + KEYBOARD
 # ============================================================
-user_state = {}  # chat_id -> dict
+user_state = {}
 
 
 def make_keyboard(opts):
@@ -185,7 +185,7 @@ def make_keyboard(opts):
     rows = []
     for i in range(0, len(labels), 2):
         r = labels[i:i + 2]
-        r.reverse()  # RTL
+        r.reverse()
         rows.append(r)
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -248,11 +248,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     st = user_state[cid]
     step = st["step"]
 
-    # Back button: go to start for simplicity
     if text == "رجوع ↩️":
         return await start(update, ctx)
 
-    # --- Stage ---
+    # stage
     if step == "stage":
         row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
         if not row:
@@ -265,7 +264,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
 
-    # --- Term ---
+    # term
     if step == "term":
         row = db_fetch_one(
             "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
@@ -281,7 +280,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
 
-    # --- Grade ---
+    # grade
     if step == "grade":
         row = db_fetch_one(
             "SELECT id FROM grades WHERE name=%s AND term_id=%s",
@@ -297,7 +296,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
 
-    # --- Subject ---
+    # subject
     if step == "subject":
         row = db_fetch_one(
             "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
@@ -321,7 +320,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "اختر نوع المحتوى:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
 
-    # --- Option ---
+    # option
     if step == "option":
         row = db_fetch_one(
             "SELECT id FROM subject_options WHERE name=%s",
@@ -340,7 +339,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
 
-    # --- Suboption ---
+    # suboption
     if step == "suboption":
         row = db_fetch_one(
             "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
@@ -363,7 +362,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         return await send_resources(update, st)
 
-    # --- Subchild ---
+    # subchild
     if step == "subchild":
         row = db_fetch_one(
             "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
@@ -373,46 +372,46 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
+
+
 # ============================================================
-#   TELEGRAM LIFESPAN (RENDER COMPATIBLE + NO FLOOD)
+#   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE)
 # ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Create telegram Application once per process,
-    set webhook only if not already set (prevent Flood control)
-    """
+
     tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-    )
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await tg_app.initialize()
     await tg_app.start()
 
-    # ---------------------------------------------
-    #   🔥 Anti-Flood Webhook Fix
-    #   فقط حدّدي الـ webhook إذا مش موجود أو مختلف
-    # ---------------------------------------------
-    current = await tg_app.bot.get_webhook_info()
     target_url = f"{APP_URL}/telegram"
+    current = await tg_app.bot.get_webhook_info()
 
     if current.url != target_url:
         await tg_app.bot.set_webhook(url=target_url)
         log.info(f"🌐 Webhook updated → {target_url}")
     else:
-        log.info("🌐 Webhook already set — skipped ✔️")
+        log.info("🌐 Webhook already set — skipped")
 
     app.state.tg = tg_app
-    log.info("🤖 Telegram bot started.")
 
     try:
         yield
     finally:
-        log.info("🛑 Stopping Telegram bot...")
         await tg_app.stop()
         await tg_app.shutdown()
+
+
+# ============================================================
+#   CREATE FASTAPI APP  ← مهم جداً
+# ============================================================
+app = FastAPI(title="Edu Bot API", lifespan=lifespan)
+
+# Serve uploaded files
+app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 
 # ============================================================
@@ -425,6 +424,8 @@ async def telegram_webhook(request: Request):
     update = Update.de_json(data, tg_app.bot)
     await tg_app.process_update(update)
     return Response(status_code=200)
+
+
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -632,7 +633,7 @@ async def save_edit(
 
 
 # ============================================================
-#   ADMIN: DELETE
+#   ADMIN: DELETE RESOURCE
 # ============================================================
 @app.post("/admin/delete/{rid}")
 def delete(rid: int, password: str = Form(...)):
