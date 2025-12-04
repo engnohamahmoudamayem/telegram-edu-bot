@@ -249,6 +249,37 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     step = st["step"]
 
     if text == "رجوع ↩️":
+        if step == "subchild":
+        st["step"] = "suboption"
+        rows = db_fetch_all("SELECT name FROM option_subchildren WHERE child_id=%s", (st["child_id"],))
+        return await update.message.reply_text("اختر القسم الفرعي:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "suboption":
+        st["step"] = "option"
+        rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (st["option_id"],))
+        return await update.message.reply_text("اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "option":
+        st["step"] = "subject"
+        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"],))
+        return await update.message.reply_text("اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "subject":
+        st["step"] = "grade"
+        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (st["term_id"],))
+        return await update.message.reply_text("اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "grade":
+        st["step"] = "term"
+        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (st["stage_id"],))
+        return await update.message.reply_text("اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "term":
+        st["step"] = "stage"
+        rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
+        return await update.message.reply_text("اختر المرحلة:", reply_markup=make_keyboard([r["name"] for r in rows]))
+
+    if step == "stage":
         return await start(update, ctx)
 
     # stage
