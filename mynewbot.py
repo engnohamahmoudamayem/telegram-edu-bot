@@ -336,26 +336,16 @@ async def lifespan(app: FastAPI):
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # ------------------------------
-    #  INIT ONLY (NO start()!)
-    # ------------------------------
-    await tg_app.initialize()
-
-    webhook_url = f"{APP_URL}/telegram"
-    current = await tg_app.bot.get_webhook_info()
-
-    if webhook_url != current.url:
-        await tg_app.bot.set_webhook(url=webhook_url)
-        log.info(f"Webhook updated → {webhook_url}")
+    # لا تستدعي initialize !!!  
+    await tg_app.bot.set_webhook(f"{APP_URL}/telegram")
+    log.info(f"Webhook updated → {APP_URL}/telegram")
 
     app.state.tg = tg_app
 
     try:
         yield
     finally:
-        # Remove webhook on shutdown
         await tg_app.bot.delete_webhook()
-        await tg_app.shutdown()
 
 
 
