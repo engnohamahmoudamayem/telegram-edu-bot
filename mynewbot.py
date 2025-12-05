@@ -1,18 +1,196 @@
 # ============================================================
-#   BOT STATE + KEYBOARD + HISTORY
+#   IMPORTS & CONFIG
 # ============================================================
-user_state: dict[int, dict] = {}
+import os
+import uuid
+import json
+import logging
+from pathlib import Path
+from contextlib import asynccontextmanager
+import asyncio
+
+from fastapi import (
+    FastAPI, Request, Response, Form, UploadFile, File,
+    HTTPException, Cookie
+)
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+import psycopg2
+import psycopg2.extras
+
+from dotenv import load_dotenv
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+# Fix event loop for Render
+asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+# ============================================================
+#   LOAD ENV
+# ============================================================
+load_dotenv()
+
+BASE_DIR = Path(__file__).parent.resolve()
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+APP_URL = os.environ.get("APP_URL")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if not BOT_TOKEN or not APP_URL:
+    raise RuntimeError("BOT_TOKEN أو APP_URL مفقود!")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL مفقود!")
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("EDU_BOT")
+
+# ============================================================
+#   CONNECT TO POSTGRES
+# ============================================================
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = True
+
+def db_fetch_all(q, p=()):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(q, p)
+        return cur.fetchall()
+
+def db_fetch_one(q, p=()):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(q, p)
+        return cur.fetchone()
+
+def db_execute(q, p=()):
+    with conn.cursor() as cur:
+        cur.execute(q, p)
+
+# ============================================================
+#   INIT DATABASE
+# ============================================================
+def init_db():
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stages (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS terms (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            stage_id INTEGER REFERENCES stages(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS grades (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            term_id INTEGER REFERENCES terms(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subjects (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            grade_id INTEGER REFERENCES grades(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subject_options (
+            id SERIAL PRIMARY KEY,
+            name TEXT
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS subject_option_map (
+            subject_id INTEGER REFERENCES subjects(id),
+            option_id INTEGER REFERENCES subject_options(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS option_children (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            option_id INTEGER REFERENCES subject_options(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS option_subchildren (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            child_id INTEGER REFERENCES option_children(id)
+        );
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS resources (
+            id SERIAL PRIMARY KEY,
+            subject_id INTEGER REFERENCES subjects(id),
+            option_id INTEGER REFERENCES subject_options(id),
+            child_id INTEGER REFERENCES option_children(id),
+            subchild_id INTEGER REFERENCES option_subchildren(id),
+            stage_id INTEGER REFERENCES stages(id),
+            term_id INTEGER REFERENCES terms(id),
+            grade_id INTEGER REFERENCES grades(id),
+            title TEXT NOT NULL,
+            url TEXT NOT NULL
+        );
+    """)
+
+    cur.close()
+    log.info("✅ Database ready!")
+
+init_db()
+
+# ============================================================
+#   FILE UPLOAD
+# ============================================================
+async def save_uploaded_file(file: UploadFile):
+    if not file or not file.filename:
+        return None
+
+    ext = Path(file.filename).suffix or ".pdf"
+    name = f"{uuid.uuid4()}{ext}"
+    path = UPLOAD_DIR / name
+    path.write_bytes(await file.read())
+
+    return f"{APP_URL}/files/{name}"
+
+# ============================================================
+#   BOT STATE + KEYBOARD
+# ============================================================
+user_state = {}
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
     rows = []
     for i in range(0, len(labels), 2):
-        r = labels[i:i + 2]
+        r = labels[i:i+2]
         r.reverse()
         rows.append(r)
+
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
-
 
 # ============================================================
 #   SEND RESOURCES
@@ -22,8 +200,8 @@ async def send_resources(update: Update, st: dict):
         """
         SELECT title, url FROM resources
         WHERE stage_id=%s AND term_id=%s AND grade_id=%s
-          AND subject_id=%s AND option_id=%s AND child_id=%s
-          AND (subchild_id=%s OR subchild_id IS NULL)
+        AND subject_id=%s AND option_id=%s AND child_id=%s
+        AND (subchild_id=%s OR subchild_id IS NULL)
         """,
         (
             st["stage_id"], st["term_id"], st["grade_id"],
@@ -35,19 +213,15 @@ async def send_resources(update: Update, st: dict):
     if not rows:
         return await update.message.reply_text("لا يوجد محتوى.")
 
-    msg = "\n".join(
-        f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows
-    )
+    msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
     await update.message.reply_text(msg, parse_mode="HTML")
+
 # ============================================================
-#   /START COMMAND
+#   START COMMAND
 # ============================================================
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = update.effective_chat.id
-    user_state[cid] = {
-        "step": "stage",
-        "history": [],
-    }
+    user_state[cid] = {"step": "stage", "history": []}
 
     rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
     names = [r["name"] for r in rows]
@@ -57,8 +231,6 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=make_keyboard(names),
         parse_mode="Markdown",
     )
-
-
 # ============================================================
 #   MAIN MESSAGE HANDLER
 # ============================================================
@@ -77,9 +249,11 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ========================================================
     if text == "رجوع ↩️":
 
+        # لا يوجد تاريخ → ارجع للرئيسية
         if not st["history"]:
             return await start(update, ctx)
 
+        # ارجع خطوة للخلف
         previous_step = st["history"].pop()
         st["step"] = previous_step
 
@@ -162,13 +336,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
 
     # ========================================================
-    #   HANDLE NORMAL FLOW (STAGE → TERM → GRADE…)
+    #   NORMAL FLOW (STAGE → TERM → GRADE → SUBJECT → ...)
     # ========================================================
 
     # --- STAGE SELECTION ---
     if step == "stage":
         row = db_fetch_one(
-            "SELECT id FROM stages WHERE name=%s", (text,)
+            "SELECT id FROM stages WHERE name=%s",
+            (text,),
         )
         if not row:
             return await update.message.reply_text("هذه المرحلة غير صحيحة.")
@@ -246,13 +421,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rows = db_fetch_all(
             """
             SELECT so.name FROM subject_options so
-            JOIN subject_option_map som ON so.id=som.option_id
+            JOIN subject_option_map som ON so.id = som.option_id
             WHERE som.subject_id=%s
             """,
             (st["subject_id"],),
         )
 
         if not rows:
+            # مفيش خيارات → ابعت الروابط مباشرة
             return await send_resources(update, st)
 
         return await update.message.reply_text(
@@ -264,7 +440,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if step == "option":
         row = db_fetch_one(
             "SELECT id FROM subject_options WHERE name=%s",
-            (text,)
+            (text,),
         )
         if not row:
             return await update.message.reply_text("الخيار غير صحيح.")
@@ -279,6 +455,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
         if not rows:
+            # لا يوجد فصول/وحدات → نرسل الروابط مباشرة
             return await send_resources(update, st)
 
         return await update.message.reply_text(
@@ -286,7 +463,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # --- CHILD SELECTION ---
+    # --- CHILD (CHAPTER/UNIT) SELECTION ---
     if step == "child_option":
         row = db_fetch_one(
             "SELECT id FROM option_children WHERE option_id=%s AND name=%s",
@@ -305,6 +482,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
         if not rows:
+            # لا يوجد دروس فرعية → نرسل الروابط مباشرة
             st["step"] = "child_option"
             return await send_resources(update, st)
 
@@ -313,7 +491,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # --- SUBCHILD SELECTION ---
+    # --- SUBCHILD (LESSON) SELECTION ---
     if step == "subchild_option":
         row = db_fetch_one(
             "SELECT id FROM option_subchildren WHERE child_id=%s AND name=%s",
@@ -323,14 +501,17 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return await update.message.reply_text("الخيار غير صحيح.")
 
         st["subchild_id"] = row["id"]
+        # نرسل الروابط النهائية
         return await send_resources(update, st)
+
+
 # ============================================================
-#   FASTAPI APP & LIFECYCLE
+#   FASTAPI APP & TELEGRAM LIFECYCLE
 # ============================================================
 app = FastAPI()
 app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
-# --- Telegram Application (PTB v21) ---
+# Telegram Application (PTB v21)
 ptb_application = (
     Application.builder()
     .token(BOT_TOKEN)
@@ -338,12 +519,14 @@ ptb_application = (
 )
 
 ptb_application.add_handler(CommandHandler("start", start))
-ptb_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+ptb_application.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("INFO:     Waiting for application startup.")
+    log.info("INFO:     Waiting for application startup...")
 
     # Set webhook
     await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
@@ -370,8 +553,6 @@ async def telegram_webhook(request: Request):
         Update.de_json(data, ptb_application.bot)
     )
     return Response(status_code=200)
-
-
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -425,8 +606,6 @@ def build_resources_context():
             <td><a href="/admin/edit/{r['id']}" class="btn btn-warning btn-sm">تعديل</a></td>
             <td>
                 <form method="post" action="/admin/delete/{r['id']}">
-                    <input name="password" type="password"
-                           class="form-control form-control-sm mb-1" required>
                     <button class="btn btn-danger btn-sm">🗑️</button>
                 </form>
             </td>
@@ -528,11 +707,10 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
 
 
 # ============================================================
-#   ADMIN: ADD RESOURCE
+#   ADMIN: ADD RESOURCE  (NO PASSWORD REQUIRED AFTER LOGIN)
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
-    password: str = Form(...),
     stage_id: int = Form(...),
     term_id: int = Form(...),
     grade_id: int = Form(...),
@@ -547,9 +725,6 @@ async def admin_add(
 ):
     if admin_auth != "yes":
         return RedirectResponse("/login")
-
-    if password != ADMIN_PASSWORD:
-        raise HTTPException(401, "كلمة السر خطأ!")
 
     if file and file.filename and url.strip():
         raise HTTPException(400, "استخدمي رابط أو PDF فقط — ليس الاثنين")
@@ -567,10 +742,8 @@ async def admin_add(
         """
         INSERT INTO resources (
             subject_id, option_id, child_id, subchild_id,
-            stage_id, term_id, grade_id,
-            title, url
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            stage_id, term_id, grade_id, title, url
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             subject_id,
@@ -610,7 +783,7 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
     <body class="p-4">
     <h3>تعديل المورد {rid}</h3>
 
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/formdata">
         <label>العنوان:</label>
         <input name="title" class="form-control" value="{row['title']}">
 
@@ -622,6 +795,7 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
 
         <button class="btn btn-success mt-3">حفظ</button>
     </form>
+
     <a href="/admin" class="btn btn-secondary mt-3">رجوع</a>
     </body></html>
     """)
@@ -657,19 +831,15 @@ async def save_edit(
 
 
 # ============================================================
-#   ADMIN: DELETE RESOURCE
+#   ADMIN: DELETE RESOURCE  (NO PASSWORD REQUIRED)
 # ============================================================
 @app.post("/admin/delete/{rid}")
 def delete(
     rid: int,
-    password: str = Form(...),
     admin_auth: str | None = Cookie(None),
 ):
     if admin_auth != "yes":
         return RedirectResponse("/login")
-
-    if password != ADMIN_PASSWORD:
-        raise HTTPException(401, "كلمة السر خطأ!")
 
     db_execute("DELETE FROM resources WHERE id=%s", (rid,))
     return RedirectResponse("/admin", status_code=303)
