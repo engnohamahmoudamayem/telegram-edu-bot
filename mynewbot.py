@@ -336,8 +336,10 @@ async def lifespan(app: FastAPI):
     tg_app.add_handler(CommandHandler("start", start))
     tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # ------------------------------
+    #  INIT ONLY (NO start()!)
+    # ------------------------------
     await tg_app.initialize()
-    await tg_app.start()
 
     webhook_url = f"{APP_URL}/telegram"
     current = await tg_app.bot.get_webhook_info()
@@ -351,8 +353,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await tg_app.stop()
+        # Remove webhook on shutdown
+        await tg_app.bot.delete_webhook()
         await tg_app.shutdown()
+
 
 
 # ============================================================
