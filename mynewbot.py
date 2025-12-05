@@ -42,6 +42,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+print("🔥 ADMIN_PASSWORD LOADED FROM ENV =", repr(ADMIN_PASSWORD))
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("BOT_TOKEN or APP_URL missing!")
