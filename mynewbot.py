@@ -36,13 +36,15 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if not BOT_TOKEN or not APP_URL:
     raise RuntimeError("BOT_TOKEN or APP_URL missing!")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL missing!")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("ADMIN_PASSWORD missing in environment!")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("EDU_BOT")
