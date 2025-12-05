@@ -1,184 +1,7 @@
 # ============================================================
-#   IMPORTS & CONFIG
-# ============================================================
-import os
-import uuid
-import json
-import logging
-from pathlib import Path
-from contextlib import asynccontextmanager
-
-import psycopg2
-import psycopg2.extras
-
-from fastapi import FastAPI, Request, Response, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
-from dotenv import load_dotenv
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-
-# ============================================================
-#   LOAD ENV
-# ============================================================
-load_dotenv()
-
-BASE_DIR = Path(__file__).parent.resolve()
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
-
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("APP_URL")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-if not BOT_TOKEN or not APP_URL:
-    raise RuntimeError("BOT_TOKEN or APP_URL missing!")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL missing!")
-
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("EDU_BOT")
-
-# ============================================================
-#   CONNECT TO POSTGRESQL
-# ============================================================
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = True
-
-
-def db_fetch_all(q, p=()):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(q, p)
-        return cur.fetchall()
-
-
-def db_fetch_one(q, p=()):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(q, p)
-        return cur.fetchone()
-
-
-def db_execute(q, p=()):
-    with conn.cursor() as cur:
-        cur.execute(q, p)
-
-
-# ============================================================
-#   INIT DATABASE
-# ============================================================
-def init_db():
-    cur = conn.cursor()
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS stages (
-            id SERIAL PRIMARY KEY,
-            name TEXT UNIQUE
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS terms (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            stage_id INTEGER REFERENCES stages(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS grades (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            term_id INTEGER REFERENCES terms(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS subjects (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            grade_id INTEGER REFERENCES grades(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS subject_options (
-            id SERIAL PRIMARY KEY,
-            name TEXT
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS subject_option_map (
-            subject_id INTEGER REFERENCES subjects(id),
-            option_id INTEGER REFERENCES subject_options(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS option_children (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            option_id INTEGER REFERENCES subject_options(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS option_subchildren (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            child_id INTEGER REFERENCES option_children(id)
-        );
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS resources (
-            id SERIAL PRIMARY KEY,
-            subject_id INTEGER REFERENCES subjects(id),
-            option_id INTEGER REFERENCES subject_options(id),
-            child_id INTEGER REFERENCES option_children(id),
-            subchild_id INTEGER REFERENCES option_subchildren(id),
-            stage_id INTEGER REFERENCES stages(id),
-            term_id INTEGER REFERENCES terms(id),
-            grade_id INTEGER REFERENCES grades(id),
-            title TEXT NOT NULL,
-            url TEXT NOT NULL
-        );
-    """)
-
-    cur.close()
-    log.info("✅ Database ready!")
-
-
-init_db()
-
-# ============================================================
-#   FILE UPLOAD
-# ============================================================
-async def save_uploaded_file(file: UploadFile):
-    if not file or not file.filename:
-        return None
-
-    ext = Path(file.filename).suffix or ".pdf"
-    name = f"{uuid.uuid4()}{ext}"
-    path = UPLOAD_DIR / name
-    path.write_bytes(await file.read())
-
-    return f"{APP_URL}/files/{name}"
-
-
-# ============================================================
 #   BOT STATE + KEYBOARD + HISTORY
 # ============================================================
 user_state: dict[int, dict] = {}
-
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
@@ -215,11 +38,7 @@ async def send_resources(update: Update, st: dict):
     msg = "\n".join(
         f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows
     )
-    await update.message.reply_text(
-        msg, parse_mode="HTML", disable_web_page_preview=True
-    )
-
-
+    await update.message.reply_text(msg, parse_mode="HTML")
 # ============================================================
 #   /START COMMAND
 # ============================================================
@@ -258,15 +77,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ========================================================
     if text == "رجوع ↩️":
 
-        # لا يوجد تاريخ → ارجع للرئيسية
         if not st["history"]:
             return await start(update, ctx)
 
-        # ارجع خطوة للخلف
         previous_step = st["history"].pop()
         st["step"] = previous_step
 
-        # المرحلة
+        # --- STAGE ---
         if previous_step == "stage":
             rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
             return await update.message.reply_text(
@@ -274,10 +91,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # الفصل الدراسي
+        # --- TERM ---
         if previous_step == "term":
-            # We must remove the grade_id and subject_id as well, 
-            # since going back to 'term' means we abandon the current grade/subject selection.
             st.pop("grade_id", None)
             st.pop("subject_id", None)
 
@@ -289,8 +104,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "اختر الفصل الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
-        
-        # الصف الدراسي
+
+        # --- GRADE ---
         if previous_step == "grade":
             st.pop("subject_id", None)
 
@@ -302,8 +117,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "اختر الصف الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
-            
-        # المادة
+
+        # --- SUBJECT ---
         if previous_step == "subject":
             st.pop("option_id", None)
 
@@ -316,7 +131,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # الخيارات الرئيسية للمادة (كتاب طالب/معلم...)
+        # --- OPTION ---
         if previous_step == "option":
             st.pop("child_id", None)
 
@@ -332,48 +147,49 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "اختر نوع المحتوى:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
-            
-        # الخيارات الفرعية (الفصل/الوحدة)
-        if previous_step == "child_option":
-             st.pop("subchild_id", None)
 
-             rows = db_fetch_all(
+        # --- CHILD OPTION ---
+        if previous_step == "child_option":
+            st.pop("subchild_id", None)
+
+            rows = db_fetch_all(
                 "SELECT name FROM option_children WHERE option_id=%s",
                 (st["option_id"],),
             )
-             return await update.message.reply_text(
+            return await update.message.reply_text(
                 "اختر الفصل أو الوحدة:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
     # ========================================================
-    #   HANDLE STEPS FLOW (STAGE, TERM, GRADE, SUBJECT, etc.)
+    #   HANDLE NORMAL FLOW (STAGE → TERM → GRADE…)
     # ========================================================
 
-    # --- STEP 1: Stage Selection ---
+    # --- STAGE SELECTION ---
     if step == "stage":
         row = db_fetch_one(
-            "SELECT id, name FROM stages WHERE name=%s", (text,)
+            "SELECT id FROM stages WHERE name=%s", (text,)
         )
         if not row:
             return await update.message.reply_text("هذه المرحلة غير صحيحة.")
 
         st["stage_id"] = row["id"]
-        st["history"].append("stage") # Save current step to history before moving on
+        st["history"].append("stage")
         st["step"] = "term"
 
         rows = db_fetch_all(
-            "SELECT name FROM terms WHERE stage_id=%s", (row["id"],)
+            "SELECT name FROM terms WHERE stage_id=%s",
+            (row["id"],),
         )
         return await update.message.reply_text(
             "اختر الفصل الدراسي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # --- STEP 2: Term Selection ---
+    # --- TERM SELECTION ---
     if step == "term":
         row = db_fetch_one(
-            "SELECT id, name FROM terms WHERE stage_id=%s AND name=%s",
+            "SELECT id FROM terms WHERE stage_id=%s AND name=%s",
             (st["stage_id"], text),
         )
         if not row:
@@ -384,17 +200,18 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["step"] = "grade"
 
         rows = db_fetch_all(
-            "SELECT name FROM grades WHERE term_id=%s", (row["id"],)
+            "SELECT name FROM grades WHERE term_id=%s",
+            (row["id"],),
         )
         return await update.message.reply_text(
             "اختر الصف الدراسي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
-        
-    # --- STEP 3: Grade Selection ---
+
+    # --- GRADE SELECTION ---
     if step == "grade":
         row = db_fetch_one(
-            "SELECT id, name FROM grades WHERE term_id=%s AND name=%s",
+            "SELECT id FROM grades WHERE term_id=%s AND name=%s",
             (st["term_id"], text),
         )
         if not row:
@@ -405,17 +222,18 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["step"] = "subject"
 
         rows = db_fetch_all(
-            "SELECT name FROM subjects WHERE grade_id=%s", (row["id"],)
+            "SELECT name FROM subjects WHERE grade_id=%s",
+            (row["id"],),
         )
         return await update.message.reply_text(
             "اختر المادة:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # --- STEP 4: Subject Selection ---
+    # --- SUBJECT SELECTION ---
     if step == "subject":
         row = db_fetch_one(
-            "SELECT id, name FROM subjects WHERE grade_id=%s AND name=%s",
+            "SELECT id FROM subjects WHERE grade_id=%s AND name=%s",
             (st["grade_id"], text),
         )
         if not row:
@@ -425,144 +243,120 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("subject")
         st["step"] = "option"
 
-        # Fetch subject options (e.g., Student Book, Teacher Guide, etc.)
         rows = db_fetch_all(
             """
             SELECT so.name FROM subject_options so
-            JOIN subject_option_map som ON so.id = som.option_id
+            JOIN subject_option_map som ON so.id=som.option_id
             WHERE som.subject_id=%s
             """,
             (st["subject_id"],),
         )
-        
+
         if not rows:
-            # If no options, jump straight to sending resources
             return await send_resources(update, st)
-            
+
         return await update.message.reply_text(
             "اختر نوع المحتوى:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # --- STEP 5: Option Selection (e.g., Student Book) ---
+    # --- OPTION SELECTION ---
     if step == "option":
         row = db_fetch_one(
-            "SELECT id, name FROM subject_options WHERE name=%s", (text,)
+            "SELECT id FROM subject_options WHERE name=%s",
+            (text,)
         )
         if not row:
-            return await update.message.reply_text("الخيار المحدد غير صحيح.")
-            
-        # Verify that this option is actually mapped to the current subject
-        is_valid_map = db_fetch_one(
-            "SELECT 1 FROM subject_option_map WHERE subject_id=%s AND option_id=%s",
-            (st["subject_id"], row["id"])
-        )
-        
-        if not is_valid_map:
-             return await update.message.reply_text("الخيار المحدد غير متاح لهذه المادة.")
+            return await update.message.reply_text("الخيار غير صحيح.")
 
         st["option_id"] = row["id"]
         st["history"].append("option")
         st["step"] = "child_option"
-        
-        # Check if this option has children (e.g., Chapters/Units)
+
         rows = db_fetch_all(
             "SELECT name FROM option_children WHERE option_id=%s",
             (row["id"],),
         )
 
         if not rows:
-            # If no children, we are at the final stage to send resources
             return await send_resources(update, st)
-            
+
         return await update.message.reply_text(
             "اختر الفصل أو الوحدة:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
-        
-    # --- STEP 6: Child Option Selection (e.g., Chapter 1) ---
+
+    # --- CHILD SELECTION ---
     if step == "child_option":
         row = db_fetch_one(
-            "SELECT id, name FROM option_children WHERE option_id=%s AND name=%s",
+            "SELECT id FROM option_children WHERE option_id=%s AND name=%s",
             (st["option_id"], text),
         )
         if not row:
-            return await update.message.reply_text("الخيار المحدد غير صحيح.")
+            return await update.message.reply_text("الخيار غير صحيح.")
 
         st["child_id"] = row["id"]
         st["history"].append("child_option")
-        st["step"] = "subchild_option" # Move to subchild step (if exists)
+        st["step"] = "subchild_option"
 
-        # Check if this child option has subchildren (e.g., Lesson 1.1)
         rows = db_fetch_all(
             "SELECT name FROM option_subchildren WHERE child_id=%s",
             (row["id"],),
         )
-        
+
         if not rows:
-            # If no subchildren, send resources immediately and stay at this step logically
             st["step"] = "child_option"
             return await send_resources(update, st)
-        
+
         return await update.message.reply_text(
             "اختر الدرس الفرعي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
-        
-    # --- STEP 7: Subchild Option Selection (e.g., Lesson 1.1) ---
+
+    # --- SUBCHILD SELECTION ---
     if step == "subchild_option":
         row = db_fetch_one(
-            "SELECT id, name FROM option_subchildren WHERE child_id=%s AND name=%s",
+            "SELECT id FROM option_subchildren WHERE child_id=%s AND name=%s",
             (st["child_id"], text),
         )
         if not row:
-            return await update.message.reply_text("الخيار المحدد غير صحيح.")
+            return await update.message.reply_text("الخيار غير صحيح.")
 
         st["subchild_id"] = row["id"]
-        # We stay at this step logically since there are no steps after this one in the flow
-        
-        # Send resources
         return await send_resources(update, st)
-
-
 # ============================================================
 #   FASTAPI APP & LIFECYCLE
 # ============================================================
 app = FastAPI()
 app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
-
-# --- Bot Instance and Lifespan Manager ---
-
-# Initialize the PTB Application object
+# --- Telegram Application (PTB v21) ---
 ptb_application = (
     Application.builder()
     .token(BOT_TOKEN)
     .build()
 )
 
-# Add Handlers
 ptb_application.add_handler(CommandHandler("start", start))
 ptb_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # This function replaces the outdated 'Updater' usage that caused the error.
     log.info("INFO:     Waiting for application startup.")
-    
-    # Set the webhook URL for Telegram to send updates to this FastAPI endpoint
+
+    # Set webhook
     await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
-    
-    # This context manager runs the internal PTB machinery in the background
+    log.info("INFO:     Webhook set to %s/webhook", APP_URL)
+
     async with ptb_application:
         await ptb_application.start()
-        log.info("INFO:     Started server process")
+        log.info("INFO:     Telegram Application started.")
         yield
-        # On shutdown: Stop the bot gracefully and close DB
+        log.info("INFO:     Shutting down Telegram Application...")
         await ptb_application.stop()
         conn.close()
-
+        log.info("INFO:     DB connection closed.")
 
 app.router.lifespan_context = lifespan
 
@@ -571,15 +365,12 @@ app.router.lifespan_context = lifespan
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     """Handle incoming Telegram updates via webhook."""
-    # PTB handles parsing the incoming request body and passing it to the dispatcher
-    await ptb_application.update_queue.put(Update.de_json(await request.json(), ptb_application.bot))
+    data = await request.json()
+    await ptb_application.update_queue.put(
+        Update.de_json(data, ptb_application.bot)
+    )
     return Response(status_code=200)
 
-# ============================================================
-#   ADMIN DASHBOARD (FASTAPI ROUTES)
-# ============================================================
-
-# (Add your admin routes here if needed)
 
 # ============================================================
 #   ADMIN HELPERS
@@ -656,10 +447,65 @@ def build_resources_context():
 
 
 # ============================================================
-#   ADMIN PAGE
+#   LOGIN PAGE + AUTH
+# ============================================================
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    return """
+    <html dir="rtl">
+    <head>
+        <meta charset="utf-8">
+        <title>تسجيل الدخول</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body class="p-5" style="font-family: sans-serif; max-width:400px; margin:auto;">
+        <h3 class="mb-4">🔐 تسجيل الدخول للوحة التحكم</h3>
+
+        <form method="post" action="/login">
+            <label>اسم المستخدم:</label>
+            <input name="username" class="form-control mb-3">
+
+            <label>كلمة المرور:</label>
+            <input name="password" type="password" class="form-control mb-3">
+
+            <button class="btn btn-primary w-100">دخول</button>
+        </form>
+    </body>
+    </html>
+    """
+
+
+@app.post("/login")
+async def login(username: str = Form(...), password: str = Form(...)):
+    if username == "admin" and password == ADMIN_PASSWORD:
+        response = RedirectResponse("/admin", status_code=303)
+        response.set_cookie("admin_auth", "yes")
+        return response
+
+    return HTMLResponse("""
+        <html dir="rtl"><head><meta charset="utf-8"></head>
+        <body style="padding:40px; font-family:sans-serif;">
+        <h3 style='color:red;'>❌ اسم المستخدم أو كلمة المرور غير صحيحة</h3>
+        <a href='/login'>العودة لمحاولة أخرى</a>
+        </body></html>
+    """)
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie("admin_auth")
+    return response
+
+
+# ============================================================
+#   ADMIN PAGE (PROTECTED)
 # ============================================================
 @app.get("/admin", response_class=HTMLResponse)
-def admin_panel():
+def admin_panel(admin_auth: str | None = Cookie(None)):
+    if admin_auth != "yes":
+        return RedirectResponse("/login")
+
     ctx = build_resources_context()
     template_path = BASE_DIR / "admin_template.html"
 
@@ -675,9 +521,7 @@ def admin_panel():
     html = html.replace("__SUBJECTS__", json.dumps(ctx["subjects"], ensure_ascii=False))
     html = html.replace("__OPTIONS__", json.dumps(ctx["options"], ensure_ascii=False))
     html = html.replace("__CHILDREN__", json.dumps(ctx["children"], ensure_ascii=False))
-    html = html.replace(
-        "__SUBCHILDREN__", json.dumps(ctx["subchildren"], ensure_ascii=False)
-    )
+    html = html.replace("__SUBCHILDREN__", json.dumps(ctx["subchildren"], ensure_ascii=False))
     html = html.replace("__SUBJOPT__", json.dumps(ctx["subjopt"], ensure_ascii=False))
 
     return HTMLResponse(html)
@@ -699,7 +543,11 @@ async def admin_add(
     title: str = Form(...),
     url: str = Form(""),
     file: UploadFile | None = File(None),
+    admin_auth: str | None = Cookie(None),
 ):
+    if admin_auth != "yes":
+        return RedirectResponse("/login")
+
     if password != ADMIN_PASSWORD:
         raise HTTPException(401, "كلمة السر خطأ!")
 
@@ -738,11 +586,16 @@ async def admin_add(
     )
 
     return RedirectResponse("/admin", status_code=303)
+
+
 # ============================================================
 #   ADMIN: EDIT PAGE
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
-def edit_page(rid: int):
+def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
+    if admin_auth != "yes":
+        return RedirectResponse("/login")
+
     row = db_fetch_one("SELECT * FROM resources WHERE id=%s", (rid,))
     if not row:
         raise HTTPException(404, "غير موجود")
@@ -783,7 +636,11 @@ async def save_edit(
     title: str = Form(...),
     url: str = Form(""),
     file: UploadFile | None = File(None),
+    admin_auth: str | None = Cookie(None),
 ):
+    if admin_auth != "yes":
+        return RedirectResponse("/login")
+
     final_url = url.strip()
     if file and file.filename:
         final_url = await save_uploaded_file(file)
@@ -803,7 +660,14 @@ async def save_edit(
 #   ADMIN: DELETE RESOURCE
 # ============================================================
 @app.post("/admin/delete/{rid}")
-def delete(rid: int, password: str = Form(...)):
+def delete(
+    rid: int,
+    password: str = Form(...),
+    admin_auth: str | None = Cookie(None),
+):
+    if admin_auth != "yes":
+        return RedirectResponse("/login")
+
     if password != ADMIN_PASSWORD:
         raise HTTPException(401, "كلمة السر خطأ!")
 
