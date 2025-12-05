@@ -45,6 +45,9 @@ if not ADMIN_PASSWORD:
 # نظف الباسورد من أى مسافات / أسطر
 ADMIN_PASSWORD = ADMIN_PASSWORD.strip()
 print("🔥 CLEAN ADMIN_PASSWORD =", repr(ADMIN_PASSWORD))
+print("🔥 RUNNING FILE =", __file__)
+import telegram.ext
+print("🔥 Telegram EXT Version:", telegram.ext.__version__)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("EDU_BOT")
