@@ -1,6 +1,9 @@
-python-telegram-bot==20.8
-fastapi
-uvicorn
+fastapi==0.110.0
+uvicorn==0.29.0
+python-dotenv==1.0.1
+psycopg2-binary==2.9.9
+starlette==0.36.3
+python-telegram-bot==21.4
 python-dotenv
 httpx
 python-multipart
