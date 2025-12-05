@@ -53,23 +53,19 @@ log = logging.getLogger("EDU_BOT")
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 
-
 def db_fetch_all(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchall()
-
 
 def db_fetch_one(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchone()
 
-
 def db_execute(q, p=()):
     with conn.cursor() as cur:
         cur.execute(q, p)
-
 
 # ============================================================
 #   INIT DATABASE
@@ -156,7 +152,6 @@ def init_db():
     cur.close()
     log.info("✅ Database ready!")
 
-
 init_db()
 
 # ============================================================
@@ -172,11 +167,11 @@ async def save_uploaded_file(file: UploadFile):
     path.write_bytes(await file.read())
 
     return f"{APP_URL}/files/{name}"
+
 # ============================================================
-#   BOT STATE + KEYBOARD
+#   BOT STATE + KEYBOARD + HISTORY
 # ============================================================
 user_state = {}
-
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
@@ -187,7 +182,6 @@ def make_keyboard(opts):
         rows.append(r)
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
-
 
 # ============================================================
 #   SEND RESOURCES
@@ -214,14 +208,15 @@ async def send_resources(update: Update, st: dict):
     await update.message.reply_text(
         msg, parse_mode="HTML", disable_web_page_preview=True
     )
-
-
 # ============================================================
 #   /START COMMAND
 # ============================================================
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = update.effective_chat.id
-    user_state[cid] = {"step": "stage"}
+    user_state[cid] = {
+        "step": "stage",
+        "history": []
+    }
 
     rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
     names = [r["name"] for r in rows]
@@ -231,72 +226,6 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         reply_markup=make_keyboard(names),
         parse_mode="Markdown",
     )
-
-
-# ============================================================
-#   BACK BUTTON LOGIC (WORKS PERFECT)
-# ============================================================
-async def go_back(update, st):
-    step = st["step"]
-
-    # الرجوع من subchild → suboption
-    if step == "subchild":
-        st["step"] = "suboption"
-        rows = db_fetch_all(
-            "SELECT name FROM option_children WHERE option_id=%s",
-            (st["option_id"],)
-        )
-        return "اختر القسم:", [r["name"] for r in rows]
-
-    # الرجوع من suboption → option
-    if step == "suboption":
-        st["step"] = "option"
-        rows = db_fetch_all(
-            """
-            SELECT so.name
-            FROM subject_option_map som
-            JOIN subject_options so ON so.id = som.option_id
-            WHERE som.subject_id=%s
-            """,
-            (st["subject_id"],)
-        )
-        return "اختر نوع المحتوى:", [r["name"] for r in rows]
-
-    # الرجوع من option → subject
-    if step == "option":
-        st["step"] = "subject"
-        rows = db_fetch_all(
-            "SELECT name FROM subjects WHERE grade_id=%s",
-            (st["grade_id"],)
-        )
-        return "اختر المادة:", [r["name"] for r in rows]
-
-    # الرجوع من subject → grade
-    if step == "subject":
-        st["step"] = "grade"
-        rows = db_fetch_all(
-            "SELECT name FROM grades WHERE term_id=%s",
-            (st["term_id"],)
-        )
-        return "اختر الصف:", [r["name"] for r in rows]
-
-    # الرجوع من grade → term
-    if step == "grade":
-        st["step"] = "term"
-        rows = db_fetch_all(
-            "SELECT name FROM terms WHERE stage_id=%s",
-            (st["stage_id"],)
-        )
-        return "اختر الفصل:", [r["name"] for r in rows]
-
-    # الرجوع من term → stage
-    if step == "term":
-        st["step"] = "stage"
-        rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
-        return "اختر المرحلة:", [r["name"] for r in rows]
-
-    # الرجوع من stage → إعادة التشغيل
-    return "اختر المرحلة:", [r["name"] for r in db_fetch_all("SELECT name FROM stages ORDER BY id")]
 
 
 # ============================================================
@@ -312,25 +241,244 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     st = user_state[cid]
     step = st["step"]
 
-    # ---------------- BACK BUTTON ----------------
+    # ========================================================
+    #   BACK BUTTON (SMART HISTORY SYSTEM)
+    # ========================================================
     if text == "رجوع ↩️":
-        msg, opts = await go_back(update, st)
-        return await update.message.reply_text(msg, reply_markup=make_keyboard(opts))
 
-    # ---------------- NORMAL FLOW ----------------
+        # لا يوجد تاريخ → ارجع للرئيسية
+        if not st["history"]:
+            return await start(update, ctx)
 
-    # stage
+        # ارجع خطوة للخلف
+        previous_step = st["history"].pop()
+        st["step"] = previous_step
+
+        # المرحلة
+        if previous_step == "stage":
+            rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
+            return await update.message.reply_text(
+                "اختر المرحلة:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # الفصل الدراسي
+        if previous_step == "term":
+            rows = db_fetch_all(
+                "SELECT name FROM terms WHERE stage_id=%s",
+                (st["stage_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر الفصل:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # الصف
+        if previous_step == "grade":
+            rows = db_fetch_all(
+                "SELECT name FROM grades WHERE term_id=%s",
+                (st["term_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر الصف:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # المادة
+        if previous_step == "subject":
+            rows = db_fetch_all(
+                "SELECT name FROM subjects WHERE grade_id=%s",
+                (st["grade_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر المادة:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # نوع المحتوى
+        if previous_step == "option":
+            rows = db_fetch_all(
+                """
+                SELECT so.name
+                FROM subject_option_map som
+                JOIN subject_options so ON so.id = som.option_id
+                WHERE som.subject_id=%s
+                """,
+                (st["subject_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر نوع المحتوى:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # القسم
+        if previous_step == "suboption":
+            rows = db_fetch_all(
+                "SELECT name FROM option_children WHERE option_id=%s",
+                (st["option_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر القسم:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        # القسم الفرعي
+        if previous_step == "subchild":
+            rows = db_fetch_all(
+                "SELECT name FROM option_subchildren WHERE child_id=%s",
+                (st["child_id"],)
+            )
+            return await update.message.reply_text(
+                "اختر القسم الفرعي:",
+                reply_markup=make_keyboard([r["name"] for r in rows])
+            )
+
+        return
+
+    # ========================================================
+    #   FORWARD NAVIGATION (NEW HISTORY SYSTEM)
+    # ========================================================
+
+    # stage → term
     if step == "stage":
         row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
         if not row:
             return
+
         st["stage_id"] = row["id"]
+        st["history"].append("stage")
         st["step"] = "term"
 
         rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
         return await update.message.reply_text(
             "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
+
+    # term → grade
+    if step == "term":
+        row = db_fetch_one(
+            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
+            (text, st["stage_id"]),
+        )
+        if not row:
+            return
+
+        st["term_id"] = row["id"]
+        st["history"].append("term")
+        st["step"] = "grade"
+
+        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # grade → subject
+    if step == "grade":
+        row = db_fetch_one(
+            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
+            (text, st["term_id"]),
+        )
+        if not row:
+            return
+
+        st["grade_id"] = row["id"]
+        st["history"].append("grade")
+        st["step"] = "subject"
+
+        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
+        return await update.message.reply_text(
+            "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # subject → option
+    if step == "subject":
+        row = db_fetch_one(
+            "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
+            (text, st["grade_id"]),
+        )
+        if not row:
+            return
+
+        st["subject_id"] = row["id"]
+        st["history"].append("subject")
+        st["step"] = "option"
+
+        rows = db_fetch_all(
+            """
+            SELECT so.name
+            FROM subject_option_map som
+            JOIN subject_options so ON so.id = som.option_id
+            WHERE som.subject_id=%s
+            """,
+            (row["id"],),
+        )
+        return await update.message.reply_text(
+            "اختر نوع المحتوى:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # option → suboption
+    if step == "option":
+        row = db_fetch_one(
+            "SELECT id FROM subject_options WHERE name=%s",
+            (text,),
+        )
+        if not row:
+            return
+
+        st["option_id"] = row["id"]
+        st["history"].append("option")
+        st["step"] = "suboption"
+
+        rows = db_fetch_all(
+            "SELECT name FROM option_children WHERE option_id=%s",
+            (row["id"],),
+        )
+        return await update.message.reply_text(
+            "اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows])
+        )
+
+    # suboption → subchild or resource
+    if step == "suboption":
+        row = db_fetch_one(
+            "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
+            (text, st["option_id"]),
+        )
+        if not row:
+            return
+
+        st["child_id"] = row["id"]
+        st["history"].append("suboption")
+
+        rows = db_fetch_all(
+            "SELECT name FROM option_subchildren WHERE child_id=%s",
+            (row["id"],),
+        )
+
+        if rows:
+            st["step"] = "subchild"
+            return await update.message.reply_text(
+                "اختر القسم الفرعي:",
+                reply_markup=make_keyboard([r["name"] for r in rows]),
+            )
+
+        # لا يوجد قسم فرعي → إرسال الموارد مباشرة
+        st["step"] = "done"
+        return await send_resources(update, st)
+
+    # subchild → send resources
+    if step == "subchild":
+        row = db_fetch_one(
+            "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
+            (text, st["child_id"]),
+        )
+        if not row:
+            return
+
+        st["subchild_id"] = row["id"]
+        st["history"].append("subchild")
+        st["step"] = "done"
+
+        return await send_resources(update, st)
 # ============================================================
 #   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE)
 # ============================================================
@@ -367,6 +515,7 @@ async def lifespan(app: FastAPI):
 # ============================================================
 app = FastAPI(title="Edu Bot API", lifespan=lifespan)
 
+# Serve uploaded files
 app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 
@@ -382,6 +531,8 @@ async def telegram_webhook(request: Request):
     await tg_app.process_update(update)
 
     return Response(status_code=200)
+
+
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -436,6 +587,7 @@ def build_resources_context():
             </td>
         </tr>
         """
+
     return {
         "stages": stages,
         "terms": terms,
@@ -495,7 +647,6 @@ async def admin_add(
     if password != ADMIN_PASSWORD:
         raise HTTPException(401, "كلمة السر خطأ!")
 
-    # منع إدخال رابط + PDF معاً
     if file and file.filename and url.strip():
         raise HTTPException(400, "استخدمي رابط أو PDF فقط — ليس الاثنين")
 
@@ -512,7 +663,8 @@ async def admin_add(
         """
         INSERT INTO resources (
             subject_id, option_id, child_id, subchild_id,
-            stage_id, term_id, grade_id, title, url
+            stage_id, term_id, grade_id,
+            title, url
         )
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
@@ -557,7 +709,6 @@ def edit_page(rid: int):
 
         <button class="btn btn-success mt-3">حفظ</button>
     </form>
-
     <a href="/admin" class="btn btn-secondary mt-3">رجوع</a>
     </body></html>
     """)
