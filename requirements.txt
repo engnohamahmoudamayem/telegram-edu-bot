@@ -1,6 +1,6 @@
 fastapi
 uvicorn
 python-dotenv
-python-telegram-bot
 psycopg2-binary
 python-multipart
+python-telegram-bot==21.0.1
