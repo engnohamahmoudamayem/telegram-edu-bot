@@ -1,3 +1,4 @@
+--only-binary=:all:
 python-telegram-bot==20.8
 fastapi==0.110.0
 uvicorn==0.29.0
