@@ -53,19 +53,23 @@ log = logging.getLogger("EDU_BOT")
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 
+
 def db_fetch_all(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchall()
+
 
 def db_fetch_one(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchone()
 
+
 def db_execute(q, p=()):
     with conn.cursor() as cur:
         cur.execute(q, p)
+
 
 # ============================================================
 #   INIT DATABASE
@@ -152,6 +156,7 @@ def init_db():
     cur.close()
     log.info("✅ Database ready!")
 
+
 init_db()
 
 # ============================================================
@@ -168,10 +173,12 @@ async def save_uploaded_file(file: UploadFile):
 
     return f"{APP_URL}/files/{name}"
 
+
 # ============================================================
 #   BOT STATE + KEYBOARD + HISTORY
 # ============================================================
-user_state = {}
+user_state: dict[int, dict] = {}
+
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
@@ -182,6 +189,7 @@ def make_keyboard(opts):
         rows.append(r)
     rows.append(["رجوع ↩️"])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+
 
 # ============================================================
 #   SEND RESOURCES
@@ -204,10 +212,14 @@ async def send_resources(update: Update, st: dict):
     if not rows:
         return await update.message.reply_text("لا يوجد محتوى.")
 
-    msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
+    msg = "\n".join(
+        f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows
+    )
     await update.message.reply_text(
         msg, parse_mode="HTML", disable_web_page_preview=True
     )
+
+
 # ============================================================
 #   /START COMMAND
 # ============================================================
@@ -215,7 +227,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cid = update.effective_chat.id
     user_state[cid] = {
         "step": "stage",
-        "history": []
+        "history": [],
     }
 
     rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
@@ -259,40 +271,40 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
             return await update.message.reply_text(
                 "اختر المرحلة:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # الفصل الدراسي
         if previous_step == "term":
             rows = db_fetch_all(
                 "SELECT name FROM terms WHERE stage_id=%s",
-                (st["stage_id"],)
+                (st["stage_id"],),
             )
             return await update.message.reply_text(
                 "اختر الفصل:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # الصف
         if previous_step == "grade":
             rows = db_fetch_all(
                 "SELECT name FROM grades WHERE term_id=%s",
-                (st["term_id"],)
+                (st["term_id"],),
             )
             return await update.message.reply_text(
                 "اختر الصف:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # المادة
         if previous_step == "subject":
             rows = db_fetch_all(
                 "SELECT name FROM subjects WHERE grade_id=%s",
-                (st["grade_id"],)
+                (st["grade_id"],),
             )
             return await update.message.reply_text(
                 "اختر المادة:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # نوع المحتوى
@@ -304,33 +316,33 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 JOIN subject_options so ON so.id = som.option_id
                 WHERE som.subject_id=%s
                 """,
-                (st["subject_id"],)
+                (st["subject_id"],),
             )
             return await update.message.reply_text(
                 "اختر نوع المحتوى:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # القسم
         if previous_step == "suboption":
             rows = db_fetch_all(
                 "SELECT name FROM option_children WHERE option_id=%s",
-                (st["option_id"],)
+                (st["option_id"],),
             )
             return await update.message.reply_text(
                 "اختر القسم:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         # القسم الفرعي
         if previous_step == "subchild":
             rows = db_fetch_all(
                 "SELECT name FROM option_subchildren WHERE child_id=%s",
-                (st["child_id"],)
+                (st["child_id"],),
             )
             return await update.message.reply_text(
                 "اختر القسم الفرعي:",
-                reply_markup=make_keyboard([r["name"] for r in rows])
+                reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
         return
@@ -349,7 +361,9 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("stage")
         st["step"] = "term"
 
-        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
+        rows = db_fetch_all(
+            "SELECT name FROM terms WHERE stage_id=%s", (row["id"],)
+        )
         return await update.message.reply_text(
             "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
@@ -367,7 +381,9 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("term")
         st["step"] = "grade"
 
-        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
+        rows = db_fetch_all(
+            "SELECT name FROM grades WHERE term_id=%s", (row["id"],)
+        )
         return await update.message.reply_text(
             "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
@@ -385,7 +401,9 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("grade")
         st["step"] = "subject"
 
-        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
+        rows = db_fetch_all(
+            "SELECT name FROM subjects WHERE grade_id=%s", (row["id"],)
+        )
         return await update.message.reply_text(
             "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
         )
@@ -413,7 +431,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             (row["id"],),
         )
         return await update.message.reply_text(
-            "اختر نوع المحتوى:", reply_markup=make_keyboard([r["name"] for r in rows])
+            "اختر نوع المحتوى:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
     # option → suboption
@@ -479,27 +498,30 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["step"] = "done"
 
         return await send_resources(update, st)
+
+
 # ============================================================
-#   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE)
+#   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE, NEW API ONLY)
 # ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    tg_app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
 
-    tg_app = Application.builder().token(BOT_TOKEN).build()
     tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    tg_app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
 
     await tg_app.initialize()
     await tg_app.start()
 
     target_url = f"{APP_URL}/telegram"
-    current = await tg_app.bot.get_webhook_info()
-
-    if current.url != target_url:
-        await tg_app.bot.set_webhook(url=target_url)
-        log.info(f"🌐 Webhook updated → {target_url}")
-    else:
-        log.info("🌐 Webhook already set — skipped")
+    await tg_app.bot.set_webhook(url=target_url)
+    log.info(f"🌐 Webhook set → {target_url}")
 
     app.state.tg = tg_app
 
@@ -511,7 +533,7 @@ async def lifespan(app: FastAPI):
 
 
 # ============================================================
-#   CREATE FASTAPI APP
+#   CREATE FASTAPI APP + WEBHOOK ENDPOINT
 # ============================================================
 app = FastAPI(title="Edu Bot API", lifespan=lifespan)
 
@@ -519,9 +541,6 @@ app = FastAPI(title="Edu Bot API", lifespan=lifespan)
 app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
 
 
-# ============================================================
-#   WEBHOOK ENDPOINT
-# ============================================================
 @app.post("/telegram")
 async def telegram_webhook(request: Request):
     data = await request.json()
@@ -531,8 +550,6 @@ async def telegram_webhook(request: Request):
     await tg_app.process_update(update)
 
     return Response(status_code=200)
-
-
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
@@ -542,18 +559,24 @@ def build_resources_context():
     grades = db_fetch_all("SELECT id, name, term_id FROM grades ORDER BY id")
     subjects = db_fetch_all("SELECT id, name, grade_id FROM subjects ORDER BY id")
     options = db_fetch_all("SELECT id, name FROM subject_options ORDER BY id")
-    children = db_fetch_all("SELECT id, name, option_id FROM option_children ORDER BY id")
-    subchildren = db_fetch_all("SELECT id, name, child_id FROM option_subchildren ORDER BY id")
+    children = db_fetch_all(
+        "SELECT id, name, option_id FROM option_children ORDER BY id"
+    )
+    subchildren = db_fetch_all(
+        "SELECT id, name, child_id FROM option_subchildren ORDER BY id"
+    )
     subjopt = db_fetch_all("SELECT subject_id, option_id FROM subject_option_map")
 
-    resources = db_fetch_all("""
+    resources = db_fetch_all(
+        """
         SELECT id, title, url,
                stage_id, term_id, grade_id,
                subject_id, option_id, child_id, subchild_id
         FROM resources
         ORDER BY id DESC
         LIMIT 200
-    """)
+        """
+    )
 
     stage_map = {x["id"]: x["name"] for x in stages}
     term_map = {x["id"]: x["name"] for x in terms}
@@ -621,7 +644,9 @@ def admin_panel():
     html = html.replace("__SUBJECTS__", json.dumps(ctx["subjects"], ensure_ascii=False))
     html = html.replace("__OPTIONS__", json.dumps(ctx["options"], ensure_ascii=False))
     html = html.replace("__CHILDREN__", json.dumps(ctx["children"], ensure_ascii=False))
-    html = html.replace("__SUBCHILDREN__", json.dumps(ctx["subchildren"], ensure_ascii=False))
+    html = html.replace(
+        "__SUBCHILDREN__", json.dumps(ctx["subchildren"], ensure_ascii=False)
+    )
     html = html.replace("__SUBJOPT__", json.dumps(ctx["subjopt"], ensure_ascii=False))
 
     return HTMLResponse(html)
@@ -669,15 +694,19 @@ async def admin_add(
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
-            subject_id, option_id, child_id, sub_val,
-            stage_id, term_id, grade_id,
-            title, final_url,
+            subject_id,
+            option_id,
+            child_id,
+            sub_val,
+            stage_id,
+            term_id,
+            grade_id,
+            title,
+            final_url,
         ),
     )
 
-    return RedirectResponse("/admin", 303)
-
-
+    return RedirectResponse("/admin", status_code=303)
 # ============================================================
 #   ADMIN: EDIT PAGE
 # ============================================================
@@ -736,7 +765,7 @@ async def save_edit(
         (title, final_url, rid),
     )
 
-    return RedirectResponse("/admin", 303)
+    return RedirectResponse("/admin", status_code=303)
 
 
 # ============================================================
@@ -748,4 +777,4 @@ def delete(rid: int, password: str = Form(...)):
         raise HTTPException(401, "كلمة السر خطأ!")
 
     db_execute("DELETE FROM resources WHERE id=%s", (rid,))
-    return RedirectResponse("/admin", 303)
+    return RedirectResponse("/admin", status_code=303)
