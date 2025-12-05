@@ -8,3 +8,4 @@ aiofiles
 jinja2
 psycopg2-binary
 itsdangerous
+starlette
