@@ -276,28 +276,37 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         # الفصل الدراسي
         if previous_step == "term":
+            # We must remove the grade_id and subject_id as well, 
+            # since going back to 'term' means we abandon the current grade/subject selection.
+            st.pop("grade_id", None)
+            st.pop("subject_id", None)
+
             rows = db_fetch_all(
                 "SELECT name FROM terms WHERE stage_id=%s",
                 (st["stage_id"],),
             )
             return await update.message.reply_text(
-                "اختر الفصل:",
+                "اختر الفصل الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
-
-        # الصف
+        
+        # الصف الدراسي
         if previous_step == "grade":
+            st.pop("subject_id", None)
+
             rows = db_fetch_all(
                 "SELECT name FROM grades WHERE term_id=%s",
                 (st["term_id"],),
             )
             return await update.message.reply_text(
-                "اختر الصف:",
+                "اختر الصف الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
-
+            
         # المادة
         if previous_step == "subject":
+            st.pop("option_id", None)
+
             rows = db_fetch_all(
                 "SELECT name FROM subjects WHERE grade_id=%s",
                 (st["grade_id"],),
@@ -307,13 +316,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # نوع المحتوى
+        # الخيارات الرئيسية للمادة (كتاب طالب/معلم...)
         if previous_step == "option":
+            st.pop("child_id", None)
+
             rows = db_fetch_all(
                 """
-                SELECT so.name
-                FROM subject_option_map som
-                JOIN subject_options so ON so.id = som.option_id
+                SELECT so.name FROM subject_options so
+                JOIN subject_option_map som ON so.id = som.option_id
                 WHERE som.subject_id=%s
                 """,
                 (st["subject_id"],),
@@ -322,60 +332,52 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "اختر نوع المحتوى:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
+            
+        # الخيارات الفرعية (الفصل/الوحدة)
+        if previous_step == "child_option":
+             st.pop("subchild_id", None)
 
-        # القسم
-        if previous_step == "suboption":
-            rows = db_fetch_all(
+             rows = db_fetch_all(
                 "SELECT name FROM option_children WHERE option_id=%s",
                 (st["option_id"],),
             )
-            return await update.message.reply_text(
-                "اختر القسم:",
+             return await update.message.reply_text(
+                "اختر الفصل أو الوحدة:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # القسم الفرعي
-        if previous_step == "subchild":
-            rows = db_fetch_all(
-                "SELECT name FROM option_subchildren WHERE child_id=%s",
-                (st["child_id"],),
-            )
-            return await update.message.reply_text(
-                "اختر القسم الفرعي:",
-                reply_markup=make_keyboard([r["name"] for r in rows]),
-            )
-
-        return
-
     # ========================================================
-    #   FORWARD NAVIGATION (NEW HISTORY SYSTEM)
+    #   HANDLE STEPS FLOW (STAGE, TERM, GRADE, SUBJECT, etc.)
     # ========================================================
 
-    # stage → term
+    # --- STEP 1: Stage Selection ---
     if step == "stage":
-        row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
+        row = db_fetch_one(
+            "SELECT id, name FROM stages WHERE name=%s", (text,)
+        )
         if not row:
-            return
+            return await update.message.reply_text("هذه المرحلة غير صحيحة.")
 
         st["stage_id"] = row["id"]
-        st["history"].append("stage")
+        st["history"].append("stage") # Save current step to history before moving on
         st["step"] = "term"
 
         rows = db_fetch_all(
             "SELECT name FROM terms WHERE stage_id=%s", (row["id"],)
         )
         return await update.message.reply_text(
-            "اختر الفصل:", reply_markup=make_keyboard([r["name"] for r in rows])
+            "اختر الفصل الدراسي:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # term → grade
+    # --- STEP 2: Term Selection ---
     if step == "term":
         row = db_fetch_one(
-            "SELECT id FROM terms WHERE name=%s AND stage_id=%s",
-            (text, st["stage_id"]),
+            "SELECT id, name FROM terms WHERE stage_id=%s AND name=%s",
+            (st["stage_id"], text),
         )
         if not row:
-            return
+            return await update.message.reply_text("هذا الفصل غير صحيح.")
 
         st["term_id"] = row["id"]
         st["history"].append("term")
@@ -385,17 +387,18 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "SELECT name FROM grades WHERE term_id=%s", (row["id"],)
         )
         return await update.message.reply_text(
-            "اختر الصف:", reply_markup=make_keyboard([r["name"] for r in rows])
+            "اختر الصف الدراسي:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
         )
-
-    # grade → subject
+        
+    # --- STEP 3: Grade Selection ---
     if step == "grade":
         row = db_fetch_one(
-            "SELECT id FROM grades WHERE name=%s AND term_id=%s",
-            (text, st["term_id"]),
+            "SELECT id, name FROM grades WHERE term_id=%s AND name=%s",
+            (st["term_id"], text),
         )
         if not row:
-            return
+            return await update.message.reply_text("هذا الصف غير صحيح.")
 
         st["grade_id"] = row["id"]
         st["history"].append("grade")
@@ -405,151 +408,179 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "SELECT name FROM subjects WHERE grade_id=%s", (row["id"],)
         )
         return await update.message.reply_text(
-            "اختر المادة:", reply_markup=make_keyboard([r["name"] for r in rows])
+            "اختر المادة:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # subject → option
+    # --- STEP 4: Subject Selection ---
     if step == "subject":
         row = db_fetch_one(
-            "SELECT id FROM subjects WHERE name=%s AND grade_id=%s",
-            (text, st["grade_id"]),
+            "SELECT id, name FROM subjects WHERE grade_id=%s AND name=%s",
+            (st["grade_id"], text),
         )
         if not row:
-            return
+            return await update.message.reply_text("هذه المادة غير صحيحة.")
 
         st["subject_id"] = row["id"]
         st["history"].append("subject")
         st["step"] = "option"
 
+        # Fetch subject options (e.g., Student Book, Teacher Guide, etc.)
         rows = db_fetch_all(
             """
-            SELECT so.name
-            FROM subject_option_map som
-            JOIN subject_options so ON so.id = som.option_id
+            SELECT so.name FROM subject_options so
+            JOIN subject_option_map som ON so.id = som.option_id
             WHERE som.subject_id=%s
             """,
-            (row["id"],),
+            (st["subject_id"],),
         )
+        
+        if not rows:
+            # If no options, jump straight to sending resources
+            return await send_resources(update, st)
+            
         return await update.message.reply_text(
             "اختر نوع المحتوى:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # option → suboption
+    # --- STEP 5: Option Selection (e.g., Student Book) ---
     if step == "option":
         row = db_fetch_one(
-            "SELECT id FROM subject_options WHERE name=%s",
-            (text,),
+            "SELECT id, name FROM subject_options WHERE name=%s", (text,)
         )
         if not row:
-            return
+            return await update.message.reply_text("الخيار المحدد غير صحيح.")
+            
+        # Verify that this option is actually mapped to the current subject
+        is_valid_map = db_fetch_one(
+            "SELECT 1 FROM subject_option_map WHERE subject_id=%s AND option_id=%s",
+            (st["subject_id"], row["id"])
+        )
+        
+        if not is_valid_map:
+             return await update.message.reply_text("الخيار المحدد غير متاح لهذه المادة.")
 
         st["option_id"] = row["id"]
         st["history"].append("option")
-        st["step"] = "suboption"
-
+        st["step"] = "child_option"
+        
+        # Check if this option has children (e.g., Chapters/Units)
         rows = db_fetch_all(
             "SELECT name FROM option_children WHERE option_id=%s",
             (row["id"],),
         )
-        return await update.message.reply_text(
-            "اختر القسم:", reply_markup=make_keyboard([r["name"] for r in rows])
-        )
 
-    # suboption → subchild or resource
-    if step == "suboption":
+        if not rows:
+            # If no children, we are at the final stage to send resources
+            return await send_resources(update, st)
+            
+        return await update.message.reply_text(
+            "اختر الفصل أو الوحدة:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
+        )
+        
+    # --- STEP 6: Child Option Selection (e.g., Chapter 1) ---
+    if step == "child_option":
         row = db_fetch_one(
-            "SELECT id FROM option_children WHERE name=%s AND option_id=%s",
-            (text, st["option_id"]),
+            "SELECT id, name FROM option_children WHERE option_id=%s AND name=%s",
+            (st["option_id"], text),
         )
         if not row:
-            return
+            return await update.message.reply_text("الخيار المحدد غير صحيح.")
 
         st["child_id"] = row["id"]
-        st["history"].append("suboption")
+        st["history"].append("child_option")
+        st["step"] = "subchild_option" # Move to subchild step (if exists)
 
+        # Check if this child option has subchildren (e.g., Lesson 1.1)
         rows = db_fetch_all(
             "SELECT name FROM option_subchildren WHERE child_id=%s",
             (row["id"],),
         )
-
-        if rows:
-            st["step"] = "subchild"
-            return await update.message.reply_text(
-                "اختر القسم الفرعي:",
-                reply_markup=make_keyboard([r["name"] for r in rows]),
-            )
-
-        # لا يوجد قسم فرعي → إرسال الموارد مباشرة
-        st["step"] = "done"
-        return await send_resources(update, st)
-
-    # subchild → send resources
-    if step == "subchild":
+        
+        if not rows:
+            # If no subchildren, send resources immediately and stay at this step logically
+            st["step"] = "child_option"
+            return await send_resources(update, st)
+        
+        return await update.message.reply_text(
+            "اختر الدرس الفرعي:",
+            reply_markup=make_keyboard([r["name"] for r in rows]),
+        )
+        
+    # --- STEP 7: Subchild Option Selection (e.g., Lesson 1.1) ---
+    if step == "subchild_option":
         row = db_fetch_one(
-            "SELECT id FROM option_subchildren WHERE name=%s AND child_id=%s",
-            (text, st["child_id"]),
+            "SELECT id, name FROM option_subchildren WHERE child_id=%s AND name=%s",
+            (st["child_id"], text),
         )
         if not row:
-            return
+            return await update.message.reply_text("الخيار المحدد غير صحيح.")
 
         st["subchild_id"] = row["id"]
-        st["history"].append("subchild")
-        st["step"] = "done"
-
+        # We stay at this step logically since there are no steps after this one in the flow
+        
+        # Send resources
         return await send_resources(update, st)
 
 
 # ============================================================
-#   TELEGRAM LIFESPAN (NO FLOOD + RENDER SAFE, NEW API ONLY)
+#   FASTAPI APP & LIFECYCLE
 # ============================================================
+app = FastAPI()
+app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
+
+
+# --- Bot Instance and Lifespan Manager ---
+
+# Initialize the PTB Application object
+ptb_application = (
+    Application.builder()
+    .token(BOT_TOKEN)
+    .build()
+)
+
+# Add Handlers
+ptb_application.add_handler(CommandHandler("start", start))
+ptb_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    tg_app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
-
-    tg_app.add_handler(CommandHandler("start", start))
-    tg_app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-    )
-
-    await tg_app.initialize()
-    await tg_app.start()
-
-    target_url = f"{APP_URL}/telegram"
-    await tg_app.bot.set_webhook(url=target_url)
-    log.info(f"🌐 Webhook set → {target_url}")
-
-    app.state.tg = tg_app
-
-    try:
+    # This function replaces the outdated 'Updater' usage that caused the error.
+    log.info("INFO:     Waiting for application startup.")
+    
+    # Set the webhook URL for Telegram to send updates to this FastAPI endpoint
+    await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
+    
+    # This context manager runs the internal PTB machinery in the background
+    async with ptb_application:
+        await ptb_application.start()
+        log.info("INFO:     Started server process")
         yield
-    finally:
-        await tg_app.stop()
-        await tg_app.shutdown()
+        # On shutdown: Stop the bot gracefully and close DB
+        await ptb_application.stop()
+        conn.close()
 
 
-# ============================================================
-#   CREATE FASTAPI APP + WEBHOOK ENDPOINT
-# ============================================================
-app = FastAPI(title="Edu Bot API", lifespan=lifespan)
-
-# Serve uploaded files
-app.mount("/files", StaticFiles(directory=str(UPLOAD_DIR)), name="files")
+app.router.lifespan_context = lifespan
 
 
-@app.post("/telegram")
+# --- Webhook Endpoint ---
+@app.post("/webhook")
 async def telegram_webhook(request: Request):
-    data = await request.json()
-    tg_app = request.app.state.tg
-
-    update = Update.de_json(data, tg_app.bot)
-    await tg_app.process_update(update)
-
+    """Handle incoming Telegram updates via webhook."""
+    # PTB handles parsing the incoming request body and passing it to the dispatcher
+    await ptb_application.update_queue.put(Update.de_json(await request.json(), ptb_application.bot))
     return Response(status_code=200)
+
+# ============================================================
+#   ADMIN DASHBOARD (FASTAPI ROUTES)
+# ============================================================
+
+# (Add your admin routes here if needed)
+
 # ============================================================
 #   ADMIN HELPERS
 # ============================================================
