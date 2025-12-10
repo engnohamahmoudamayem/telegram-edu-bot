@@ -646,21 +646,34 @@ async def admin_add(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    if file and url.strip():
+    # ✅ التحقق الصحيح من وجود ملف فعليًا
+    file_is_uploaded = (
+        file is not None
+        and hasattr(file, "filename")
+        and file.filename is not None
+        and file.filename.strip() != ""
+    )
+
+    # ✅ منع الجمع بين الرابط و PDF الحقيقي فقط
+    if file_is_uploaded and url.strip():
         raise HTTPException(400, "لا يمكن رفع PDF وإدخال رابط معًا")
 
     final_url = url.strip()
-    if file and file.filename:
+
+    # ✅ حفظ الملف فقط لو تم رفعه فعليًا
+    if file_is_uploaded:
         final_url = await save_uploaded_file(file)
 
     if not final_url:
         raise HTTPException(400, "يجب إدخال رابط أو ملف PDF")
 
-    sub_val = int(subchild_id) if subchild_id else None
+    sub_val = int(subchild_id) if subchild_id.strip() else None
 
     db_execute("""
-        INSERT INTO resources (subject_id, option_id, child_id, subchild_id,
-                               stage_id, term_id, grade_id, title, url)
+        INSERT INTO resources (
+            subject_id, option_id, child_id, subchild_id,
+            stage_id, term_id, grade_id, title, url
+        )
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
         subject_id, option_id, child_id, sub_val,
