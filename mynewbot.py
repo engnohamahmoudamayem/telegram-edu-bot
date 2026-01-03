@@ -1,4 +1,3 @@
-# mynewbot.py
 # ============================================================
 #   IMPORTS & CONFIG
 # ============================================================
@@ -19,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 
 import psycopg2
 import psycopg2.extras
-from psycopg2.pool import ThreadedConnectionPool
 
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
@@ -47,7 +45,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-
 print("🔐 ADMIN_PASSWORD currently in use →", ADMIN_PASSWORD)
 
 if not BOT_TOKEN or not APP_URL:
@@ -60,152 +57,91 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("EDU_BOT")
 
 # ============================================================
-#   POSTGRES (NEON) - CONNECTION POOL (BEST FOR HEAVY USERS)
+#   CONNECT TO POSTGRES
 # ============================================================
-DB_POOL: ThreadedConnectionPool | None = None
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = True
 
-def init_pool():
-    """
-    Create pool once. Use Neon pooler DATABASE_URL in Render for best results.
-    """
-    global DB_POOL
-    if DB_POOL is None:
-        DB_POOL = ThreadedConnectionPool(
-            minconn=1,
-            maxconn=10,  # good starting point for ~3000 users; increase later if needed
-            dsn=DATABASE_URL,
-        )
-        log.info("✅ DB pool initialized")
-
-def close_pool():
-    global DB_POOL
-    if DB_POOL is not None:
-        DB_POOL.closeall()
-        DB_POOL = None
-        log.info("✅ DB pool closed")
 
 def db_fetch_all(q, p=()):
-    """
-    Sync DB call using pool. Safe with FastAPI threadpool and webhook load.
-    """
-    if DB_POOL is None:
-        init_pool()
-    conn = DB_POOL.getconn()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(q, p)
-            return cur.fetchall()
-    finally:
-        DB_POOL.putconn(conn)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(q, p)
+        return cur.fetchall()
+
 
 def db_fetch_one(q, p=()):
-    if DB_POOL is None:
-        init_pool()
-    conn = DB_POOL.getconn()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(q, p)
-            return cur.fetchone()
-    finally:
-        DB_POOL.putconn(conn)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(q, p)
+        return cur.fetchone()
+
 
 def db_execute(q, p=()):
-    if DB_POOL is None:
-        init_pool()
-    conn = DB_POOL.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(q, p)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        DB_POOL.putconn(conn)
+    with conn.cursor() as cur:
+        cur.execute(q, p)
 
 # ============================================================
 #   INIT DATABASE
 # ============================================================
 def init_db():
-    """
-    Create tables if not exists (runs on startup).
-    """
-    if DB_POOL is None:
-        init_pool()
+    cur = conn.cursor()
 
-    conn = DB_POOL.getconn()
-    try:
-        cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS stages (
+        id SERIAL PRIMARY KEY,
+        name TEXT UNIQUE );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS stages (
-            id SERIAL PRIMARY KEY,
-            name TEXT UNIQUE
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS terms (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        stage_id INTEGER REFERENCES stages(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS terms (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            stage_id INTEGER REFERENCES stages(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS grades (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        term_id INTEGER REFERENCES terms(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS grades (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            term_id INTEGER REFERENCES terms(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS subjects (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        grade_id INTEGER REFERENCES grades(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS subjects (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            grade_id INTEGER REFERENCES grades(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS subject_options (
+        id SERIAL PRIMARY KEY,
+        name TEXT );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS subject_options (
-            id SERIAL PRIMARY KEY,
-            name TEXT
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS subject_option_map (
+        subject_id INTEGER REFERENCES subjects(id),
+        option_id INTEGER REFERENCES subject_options(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS subject_option_map (
-            subject_id INTEGER REFERENCES subjects(id),
-            option_id INTEGER REFERENCES subject_options(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS option_children (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        option_id INTEGER REFERENCES subject_options(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS option_children (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            option_id INTEGER REFERENCES subject_options(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS option_subchildren (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        child_id INTEGER REFERENCES option_children(id) );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS option_subchildren (
-            id SERIAL PRIMARY KEY,
-            name TEXT,
-            child_id INTEGER REFERENCES option_children(id)
-        );""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS resources (
+        id SERIAL PRIMARY KEY,
+        subject_id INTEGER REFERENCES subjects(id),
+        option_id INTEGER REFERENCES subject_options(id),
+        child_id INTEGER REFERENCES option_children(id),
+        subchild_id INTEGER REFERENCES option_subchildren(id),
+        stage_id INTEGER REFERENCES stages(id),
+        term_id INTEGER REFERENCES terms(id),
+        grade_id INTEGER REFERENCES grades(id),
+        title TEXT NOT NULL,
+        url TEXT NOT NULL );""")
 
-        cur.execute("""CREATE TABLE IF NOT EXISTS resources (
-            id SERIAL PRIMARY KEY,
-            subject_id INTEGER REFERENCES subjects(id),
-            option_id INTEGER REFERENCES subject_options(id),
-            child_id INTEGER REFERENCES option_children(id),
-            subchild_id INTEGER REFERENCES option_subchildren(id),
-            stage_id INTEGER REFERENCES stages(id),
-            term_id INTEGER REFERENCES terms(id),
-            grade_id INTEGER REFERENCES grades(id),
-            title TEXT NOT NULL,
-            url TEXT NOT NULL
-        );""")
+    cur.close()
+    log.info("✅ Database ready!")
 
-        cur.close()
-        conn.commit()
-        log.info("✅ Database ready!")
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        DB_POOL.putconn(conn)
+
+init_db()
 
 # ============================================================
-#   FILE UPLOAD
+#   FILE UPLOAD (kept for compatibility, but blocked in admin)
 # ============================================================
 async def save_uploaded_file(file: UploadFile):
     if not file or not file.filename:
@@ -221,6 +157,7 @@ async def save_uploaded_file(file: UploadFile):
 #   BOT STATE + KEYBOARD
 # ============================================================
 user_state = {}
+
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
@@ -541,10 +478,6 @@ ptb_application.add_handler(
 async def lifespan(app: FastAPI):
     log.info("INFO: Starting up application...")
 
-    # Init DB pool + tables
-    init_pool()
-    init_db()
-
     # Set Webhook
     await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
     log.info("Webhook set → %s/webhook", APP_URL)
@@ -555,8 +488,8 @@ async def lifespan(app: FastAPI):
         yield
         log.info("Shutting down bot...")
         await ptb_application.stop()
-
-    close_pool()
+        conn.close()
+        log.info("DB closed.")
 
 app.router.lifespan_context = lifespan
 
@@ -701,7 +634,7 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
     return HTMLResponse(template)
 
 # ============================================================
-#   ADD RESOURCE
+#   ADD RESOURCE (LINK ONLY)
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
@@ -720,23 +653,13 @@ async def admin_add(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    file_is_uploaded = (
-        file is not None
-        and hasattr(file, "filename")
-        and file.filename is not None
-        and file.filename.strip() != ""
-    )
-
-    if file_is_uploaded and url.strip():
-        raise HTTPException(400, "لا يمكن رفع PDF وإدخال رابط معًا")
+    # ✅ Block any file upload (even if someone sends it manually)
+    if file and getattr(file, "filename", None) and file.filename and file.filename.strip():
+        raise HTTPException(400, "الرفع غير مسموح. الرجاء إدخال رابط فقط.")
 
     final_url = url.strip()
-
-    if file_is_uploaded:
-        final_url = await save_uploaded_file(file)
-
     if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط أو ملف PDF")
+        raise HTTPException(400, "يجب إدخال رابط فقط")
 
     sub_val = int(subchild_id) if subchild_id.strip() else None
 
@@ -754,7 +677,7 @@ async def admin_add(
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   EDIT RESOURCE
+#   EDIT RESOURCE (LINK ONLY)
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
@@ -766,27 +689,42 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
         raise HTTPException(404, "غير موجود")
 
     return HTMLResponse(f"""
-    <html dir='rtl'>
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
     <head>
-        <meta charset='utf-8'>
-        <title>تعديل</title>
-        <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+        <meta charset="utf-8">
+        <title>تعديل المورد</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     </head>
-    <body class='p-4'>
-        <h3>تعديل المورد {rid}</h3>
-        <form method='post' enctype='multipart/form-data'>
-            <label>العنوان:</label>
-            <input name='title' class='form-control' value="{row['title']}">
+    <body class="p-4 bg-light">
+        <div class="container" style="max-width:600px;">
+            <h3 class="mb-4 text-center">✏️ تعديل المورد رقم {rid}</h3>
 
-            <label class='mt-3'>الرابط:</label>
-            <input name='url' class='form-control' value="{row['url']}">
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label">العنوان</label>
+                    <input name="title" class="form-control" value="{row['title']}" required>
+                </div>
 
-            <label class='mt-3'>PDF جديد (اختياري):</label>
-            <input type='file' name='file' accept='.pdf' class='form-control'>
+                <div class="mb-3">
+                    <label class="form-label">الرابط (Link فقط)</label>
+                    <input type="url" name="url" class="form-control"
+                           value="{row['url']}"
+                           placeholder="ضع رابط Google Drive / YouTube / PDF..."
+                           required>
+                </div>
 
-            <button class='btn btn-success mt-3'>حفظ</button>
-        </form>
-        <a href='/admin' class='btn btn-secondary mt-3'>رجوع</a>
+                <div class="alert alert-info">
+                    ✅ التعديل يتم عبر <b>الرابط فقط</b><br>
+                    ❌ لا يوجد رفع ملفات PDF
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-success">💾 حفظ</button>
+                    <a href="/admin" class="btn btn-secondary">↩️ رجوع</a>
+                </div>
+            </form>
+        </div>
     </body>
     </html>
     """)
@@ -802,12 +740,13 @@ async def save_edit(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    final_url = url.strip()
-    if file and file.filename:
-        final_url = await save_uploaded_file(file)
+    # ✅ Block any file upload
+    if file and getattr(file, "filename", None) and file.filename and file.filename.strip():
+        raise HTTPException(400, "الرفع غير مسموح. الرجاء إدخال رابط فقط.")
 
+    final_url = url.strip()
     if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط أو PDF")
+        raise HTTPException(400, "يجب إدخال رابط")
 
     db_execute(
         "UPDATE resources SET title=%s, url=%s WHERE id=%s",
