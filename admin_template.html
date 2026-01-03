@@ -89,15 +89,21 @@
                     <input type="text" name="title" class="form-control" required>
                 </div>
 
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">الرابط المباشر</label>
-                    <input type="url" name="url" class="form-control" placeholder="أو ارفعي PDF">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">الرابط المباشر (Link فقط)</label>
+                    <input type="url" name="url" class="form-control"
+                           placeholder="ضع رابط Google Drive / YouTube / PDF..."
+                           required>
                 </div>
 
-                <div class="col-md-2 mb-3 d-flex align-items-end">
-                    <input type="file" name="file" class="form-control" accept=".pdf">
-                </div>
+                <!-- 🚫 PDF UPLOAD HIDDEN -->
+                <input type="file" name="file" accept=".pdf" style="display:none">
 
+            </div>
+
+            <div class="alert alert-info mt-2">
+                ✅ يتم حفظ <b>الرابط فقط</b> داخل قاعدة البيانات.<br>
+                📎 ارفعي الملفات على Google Drive أو أي استضافة ثم ضعي الرابط هنا.
             </div>
 
             <button type="submit" class="btn btn-primary px-4">➕ إضافة</button>
@@ -128,9 +134,7 @@
 
 </div>
 
-
 <!-- ====================== INJECTED JSON ===================== -->
-
 <script>
 const stages = __STAGES__;
 const terms = __TERMS__;
@@ -144,7 +148,6 @@ const subjectOptionMap = __SUBJOPT__;
 
 <!-- ====================== DROPDOWNS LOGIC ===================== -->
 <script>
-
 function fill(select, list, placeholder) {
     select.innerHTML = `<option value="">${placeholder}</option>`;
     list.forEach(x => select.innerHTML += `<option value="${x.id}">${x.name}</option>`);
@@ -158,56 +161,39 @@ const option = document.getElementById("option_id");
 const child = document.getElementById("child_id");
 const subchild = document.getElementById("subchild_id");
 
-// stage → term
 stage.onchange = () => {
     fill(term, terms.filter(t => t.stage_id == stage.value), "اختر الفصل...");
     term.disabled = false;
-
-    grade.disabled = true; grade.innerHTML="";
-    subject.disabled = true; subject.innerHTML="";
-    option.disabled = true; option.innerHTML="";
-    child.disabled = true; child.innerHTML="";
-    subchild.disabled = true; subchild.innerHTML="";
+    grade.disabled = subject.disabled = option.disabled = child.disabled = subchild.disabled = true;
 };
 
-// term → grade
 term.onchange = () => {
     fill(grade, grades.filter(g => g.term_id == term.value), "اختر الصف...");
     grade.disabled = false;
 };
 
-// grade → subject
 grade.onchange = () => {
     fill(subject, subjects.filter(s => s.grade_id == grade.value), "اختر المادة...");
     subject.disabled = false;
 };
 
-// subject → option
 subject.onchange = () => {
-    const allowed = subjectOptionMap
-        .filter(x => x.subject_id == subject.value)
-        .map(x => x.option_id);
-
-    const opts = options.filter(o => allowed.includes(o.id));
-
-    fill(option, opts, "اختر النوع...");
+    const allowed = subjectOptionMap.filter(x => x.subject_id == subject.value).map(x => x.option_id);
+    fill(option, options.filter(o => allowed.includes(o.id)), "اختر النوع...");
     option.disabled = false;
 };
 
-// option → child
 option.onchange = () => {
     fill(child, children.filter(c => c.option_id == option.value), "اختر القسم...");
     child.disabled = false;
 };
 
-// child → subchild
 child.onchange = () => {
     const subs = subchildren.filter(sc => sc.child_id == child.value);
     fill(subchild, subs, subs.length ? "اختر القسم الفرعي..." : "لا يوجد");
     subchild.disabled = subs.length === 0;
 };
 
-// Load stages at start
 fill(stage, stages, "اختر المرحلة...");
 </script>
 
