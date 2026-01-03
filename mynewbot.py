@@ -1,3 +1,4 @@
+# mynewbot.py
 # ============================================================
 #   IMPORTS & CONFIG
 # ============================================================
@@ -18,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 
 import psycopg2
 import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
 
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
@@ -45,6 +47,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
 print("🔐 ADMIN_PASSWORD currently in use →", ADMIN_PASSWORD)
 
 if not BOT_TOKEN or not APP_URL:
@@ -57,84 +60,149 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("EDU_BOT")
 
 # ============================================================
-#   CONNECT TO POSTGRES
+#   POSTGRES (NEON) - CONNECTION POOL (BEST FOR HEAVY USERS)
 # ============================================================
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = True
+DB_POOL: ThreadedConnectionPool | None = None
+
+def init_pool():
+    """
+    Create pool once. Use Neon pooler DATABASE_URL in Render for best results.
+    """
+    global DB_POOL
+    if DB_POOL is None:
+        DB_POOL = ThreadedConnectionPool(
+            minconn=1,
+            maxconn=10,  # good starting point for ~3000 users; increase later if needed
+            dsn=DATABASE_URL,
+        )
+        log.info("✅ DB pool initialized")
+
+def close_pool():
+    global DB_POOL
+    if DB_POOL is not None:
+        DB_POOL.closeall()
+        DB_POOL = None
+        log.info("✅ DB pool closed")
 
 def db_fetch_all(q, p=()):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(q, p)
-        return cur.fetchall()
+    """
+    Sync DB call using pool. Safe with FastAPI threadpool and webhook load.
+    """
+    if DB_POOL is None:
+        init_pool()
+    conn = DB_POOL.getconn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(q, p)
+            return cur.fetchall()
+    finally:
+        DB_POOL.putconn(conn)
 
 def db_fetch_one(q, p=()):
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(q, p)
-        return cur.fetchone()
+    if DB_POOL is None:
+        init_pool()
+    conn = DB_POOL.getconn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(q, p)
+            return cur.fetchone()
+    finally:
+        DB_POOL.putconn(conn)
 
 def db_execute(q, p=()):
-    with conn.cursor() as cur:
-        cur.execute(q, p)
+    if DB_POOL is None:
+        init_pool()
+    conn = DB_POOL.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(q, p)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        DB_POOL.putconn(conn)
 
 # ============================================================
 #   INIT DATABASE
 # ============================================================
 def init_db():
-    cur = conn.cursor()
+    """
+    Create tables if not exists (runs on startup).
+    """
+    if DB_POOL is None:
+        init_pool()
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS stages (
-        id SERIAL PRIMARY KEY,
-        name TEXT UNIQUE );""")
+    conn = DB_POOL.getconn()
+    try:
+        cur = conn.cursor()
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS terms (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        stage_id INTEGER REFERENCES stages(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS stages (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS grades (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        term_id INTEGER REFERENCES terms(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS terms (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            stage_id INTEGER REFERENCES stages(id)
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS subjects (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        grade_id INTEGER REFERENCES grades(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS grades (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            term_id INTEGER REFERENCES terms(id)
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS subject_options (
-        id SERIAL PRIMARY KEY,
-        name TEXT );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS subjects (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            grade_id INTEGER REFERENCES grades(id)
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS subject_option_map (
-        subject_id INTEGER REFERENCES subjects(id),
-        option_id INTEGER REFERENCES subject_options(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS subject_options (
+            id SERIAL PRIMARY KEY,
+            name TEXT
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS option_children (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        option_id INTEGER REFERENCES subject_options(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS subject_option_map (
+            subject_id INTEGER REFERENCES subjects(id),
+            option_id INTEGER REFERENCES subject_options(id)
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS option_subchildren (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        child_id INTEGER REFERENCES option_children(id) );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS option_children (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            option_id INTEGER REFERENCES subject_options(id)
+        );""")
 
-    cur.execute("""CREATE TABLE IF NOT EXISTS resources (
-        id SERIAL PRIMARY KEY,
-        subject_id INTEGER REFERENCES subjects(id),
-        option_id INTEGER REFERENCES subject_options(id),
-        child_id INTEGER REFERENCES option_children(id),
-        subchild_id INTEGER REFERENCES option_subchildren(id),
-        stage_id INTEGER REFERENCES stages(id),
-        term_id INTEGER REFERENCES terms(id),
-        grade_id INTEGER REFERENCES grades(id),
-        title TEXT NOT NULL,
-        url TEXT NOT NULL );""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS option_subchildren (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            child_id INTEGER REFERENCES option_children(id)
+        );""")
 
-    cur.close()
-    log.info("✅ Database ready!")
+        cur.execute("""CREATE TABLE IF NOT EXISTS resources (
+            id SERIAL PRIMARY KEY,
+            subject_id INTEGER REFERENCES subjects(id),
+            option_id INTEGER REFERENCES subject_options(id),
+            child_id INTEGER REFERENCES option_children(id),
+            subchild_id INTEGER REFERENCES option_subchildren(id),
+            stage_id INTEGER REFERENCES stages(id),
+            term_id INTEGER REFERENCES terms(id),
+            grade_id INTEGER REFERENCES grades(id),
+            title TEXT NOT NULL,
+            url TEXT NOT NULL
+        );""")
 
-init_db()
+        cur.close()
+        conn.commit()
+        log.info("✅ Database ready!")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        DB_POOL.putconn(conn)
 
 # ============================================================
 #   FILE UPLOAD
@@ -185,6 +253,7 @@ async def send_resources(update: Update, st: dict):
 
     msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
     await update.message.reply_text(msg, parse_mode="HTML")
+
 # ============================================================
 #   START COMMAND
 # ============================================================
@@ -449,6 +518,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
+
 # ============================================================
 #   FASTAPI APP & TELEGRAM LIFECYCLE
 # ============================================================
@@ -471,6 +541,10 @@ ptb_application.add_handler(
 async def lifespan(app: FastAPI):
     log.info("INFO: Starting up application...")
 
+    # Init DB pool + tables
+    init_pool()
+    init_db()
+
     # Set Webhook
     await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
     log.info("Webhook set → %s/webhook", APP_URL)
@@ -481,8 +555,8 @@ async def lifespan(app: FastAPI):
         yield
         log.info("Shutting down bot...")
         await ptb_application.stop()
-        conn.close()
-        log.info("DB closed.")
+
+    close_pool()
 
 app.router.lifespan_context = lifespan
 
@@ -627,7 +701,7 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
     return HTMLResponse(template)
 
 # ============================================================
-#   ADD RESOURCE (NO PASSWORD)
+#   ADD RESOURCE
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
@@ -646,7 +720,6 @@ async def admin_add(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    # ✅ التحقق الصحيح من وجود ملف فعليًا
     file_is_uploaded = (
         file is not None
         and hasattr(file, "filename")
@@ -654,13 +727,11 @@ async def admin_add(
         and file.filename.strip() != ""
     )
 
-    # ✅ منع الجمع بين الرابط و PDF الحقيقي فقط
     if file_is_uploaded and url.strip():
         raise HTTPException(400, "لا يمكن رفع PDF وإدخال رابط معًا")
 
     final_url = url.strip()
 
-    # ✅ حفظ الملف فقط لو تم رفعه فعليًا
     if file_is_uploaded:
         final_url = await save_uploaded_file(file)
 
