@@ -296,7 +296,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 (st["option_id"],),
             )
             return await update.message.reply_text(
-                "اختر الفصل أو الوحدة:",
+                "اختر نوع المحتوى:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
@@ -413,7 +413,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return await send_resources(update, st)
 
         return await update.message.reply_text(
-            "اختر الفصل أو الوحدة:",
+            "اختر نوع المحتوى:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
@@ -440,7 +440,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return await send_resources(update, st)
 
         return await update.message.reply_text(
-            "اختر الدرس الفرعي:",
+            "اختر المحتوى:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
