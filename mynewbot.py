@@ -2,7 +2,6 @@
 #   IMPORTS & CONFIG
 # ============================================================
 import os
-import uuid
 import json
 import logging
 from pathlib import Path
@@ -10,11 +9,10 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from fastapi import (
-    FastAPI, Request, Response, Form, UploadFile, File,
+    FastAPI, Request, Response, Form,
     HTTPException, Cookie
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 import psycopg2
 import psycopg2.extras
@@ -38,8 +36,6 @@ asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent.resolve()
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_URL = os.environ.get("APP_URL")
@@ -137,19 +133,6 @@ def init_db():
 init_db()
 
 # ============================================================
-#   FILE UPLOAD
-# ============================================================
-async def save_uploaded_file(file: UploadFile):
-    if not file or not file.filename:
-        return None
-
-    ext = Path(file.filename).suffix or ".pdf"
-    name = f"{uuid.uuid4()}{ext}"
-    path = UPLOAD_DIR / name
-    path.write_bytes(await file.read())
-    return f"{APP_URL}/files/{name}"
-
-# ============================================================
 #   BOT STATE + KEYBOARD
 # ============================================================
 user_state = {}
@@ -225,7 +208,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         previous_step = st["history"].pop()
         st["step"] = previous_step
 
-        # STAGE
         if previous_step == "stage":
             rows = db_fetch_all("SELECT name FROM stages ORDER BY id")
             return await update.message.reply_text(
@@ -233,44 +215,31 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # TERM
         if previous_step == "term":
             st.pop("grade_id", None)
             st.pop("subject_id", None)
-            rows = db_fetch_all(
-                "SELECT name FROM terms WHERE stage_id=%s",
-                (st["stage_id"],),
-            )
+            rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (st["stage_id"],))
             return await update.message.reply_text(
                 "اختر الفصل الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # GRADE
         if previous_step == "grade":
             st.pop("subject_id", None)
-            rows = db_fetch_all(
-                "SELECT name FROM grades WHERE term_id=%s",
-                (st["term_id"],),
-            )
+            rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (st["term_id"],))
             return await update.message.reply_text(
                 "اختر الصف الدراسي:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # SUBJECT
         if previous_step == "subject":
             st.pop("option_id", None)
-            rows = db_fetch_all(
-                "SELECT name FROM subjects WHERE grade_id=%s",
-                (st["grade_id"],),
-            )
+            rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (st["grade_id"],))
             return await update.message.reply_text(
                 "اختر المادة:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # OPTION
         if previous_step == "option":
             st.pop("child_id", None)
             rows = db_fetch_all("""
@@ -283,23 +252,17 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
-        # CHILD
         if previous_step == "child_option":
             st.pop("subchild_id", None)
-            rows = db_fetch_all(
-                "SELECT name FROM option_children WHERE option_id=%s",
-                (st["option_id"],),
-            )
+            rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (st["option_id"],))
             return await update.message.reply_text(
                 "اختر الفصل أو الوحدة:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
     # ========================================================
-    #   NORMAL FLOW (STAGE → TERM → GRADE → SUBJECT ...)
+    #   NORMAL FLOW
     # ========================================================
-
-    # STAGE
     if step == "stage":
         row = db_fetch_one("SELECT id FROM stages WHERE name=%s", (text,))
         if not row:
@@ -309,20 +272,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("stage")
         st["step"] = "term"
 
-        rows = db_fetch_all(
-            "SELECT name FROM terms WHERE stage_id=%s", (row["id"],)
-        )
+        rows = db_fetch_all("SELECT name FROM terms WHERE stage_id=%s", (row["id"],))
         return await update.message.reply_text(
             "اختر الفصل الدراسي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # TERM
     if step == "term":
-        row = db_fetch_one(
-            "SELECT id FROM terms WHERE stage_id=%s AND name=%s",
-            (st["stage_id"], text),
-        )
+        row = db_fetch_one("SELECT id FROM terms WHERE stage_id=%s AND name=%s", (st["stage_id"], text))
         if not row:
             return await update.message.reply_text("هذا الفصل غير صحيح.")
 
@@ -330,20 +287,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("term")
         st["step"] = "grade"
 
-        rows = db_fetch_all(
-            "SELECT name FROM grades WHERE term_id=%s", (row["id"],)
-        )
+        rows = db_fetch_all("SELECT name FROM grades WHERE term_id=%s", (row["id"],))
         return await update.message.reply_text(
             "اختر الصف الدراسي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # GRADE
     if step == "grade":
-        row = db_fetch_one(
-            "SELECT id FROM grades WHERE term_id=%s AND name=%s",
-            (st["term_id"], text),
-        )
+        row = db_fetch_one("SELECT id FROM grades WHERE term_id=%s AND name=%s", (st["term_id"], text))
         if not row:
             return await update.message.reply_text("هذا الصف غير صحيح.")
 
@@ -351,20 +302,14 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("grade")
         st["step"] = "subject"
 
-        rows = db_fetch_all(
-            "SELECT name FROM subjects WHERE grade_id=%s", (row["id"],)
-        )
+        rows = db_fetch_all("SELECT name FROM subjects WHERE grade_id=%s", (row["id"],))
         return await update.message.reply_text(
             "اختر المادة:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # SUBJECT
     if step == "subject":
-        row = db_fetch_one(
-            "SELECT id FROM subjects WHERE grade_id=%s AND name=%s",
-            (st["grade_id"], text),
-        )
+        row = db_fetch_one("SELECT id FROM subjects WHERE grade_id=%s AND name=%s", (st["grade_id"], text))
         if not row:
             return await update.message.reply_text("هذه المادة غير صحيحة.")
 
@@ -386,12 +331,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # OPTION
     if step == "option":
-        row = db_fetch_one(
-            "SELECT id FROM subject_options WHERE name=%s",
-            (text,),
-        )
+        row = db_fetch_one("SELECT id FROM subject_options WHERE name=%s", (text,))
         if not row:
             return await update.message.reply_text("الخيار غير صحيح.")
 
@@ -399,11 +340,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("option")
         st["step"] = "child_option"
 
-        rows = db_fetch_all(
-            "SELECT name FROM option_children WHERE option_id=%s",
-            (row["id"],),
-        )
-
+        rows = db_fetch_all("SELECT name FROM option_children WHERE option_id=%s", (row["id"],))
         if not rows:
             return await send_resources(update, st)
 
@@ -412,12 +349,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # CHILD UNIT
     if step == "child_option":
-        row = db_fetch_one(
-            "SELECT id FROM option_children WHERE option_id=%s AND name=%s",
-            (st["option_id"], text),
-        )
+        row = db_fetch_one("SELECT id FROM option_children WHERE option_id=%s AND name=%s", (st["option_id"], text))
         if not row:
             return await update.message.reply_text("الخيار غير صحيح.")
 
@@ -425,11 +358,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         st["history"].append("child_option")
         st["step"] = "subchild_option"
 
-        rows = db_fetch_all(
-            "SELECT name FROM option_subchildren WHERE child_id=%s",
-            (row["id"],),
-        )
-
+        rows = db_fetch_all("SELECT name FROM option_subchildren WHERE child_id=%s", (row["id"],))
         if not rows:
             st["step"] = "child_option"
             return await send_resources(update, st)
@@ -439,12 +368,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
-    # SUBCHILD
     if step == "subchild_option":
-        row = db_fetch_one(
-            "SELECT id FROM option_subchildren WHERE child_id=%s AND name=%s",
-            (st["child_id"], text),
-        )
+        row = db_fetch_one("SELECT id FROM option_subchildren WHERE child_id=%s AND name=%s", (st["child_id"], text))
         if not row:
             return await update.message.reply_text("الخيار غير صحيح.")
 
@@ -455,25 +380,15 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 #   FASTAPI APP & TELEGRAM LIFECYCLE
 # ============================================================
 app = FastAPI()
-app.mount("/files", StaticFiles(directory=UPLOAD_DIR), name="files")
 
-# Telegram Application (PTB v21)
-ptb_application = (
-    Application.builder()
-    .token(BOT_TOKEN)
-    .build()
-)
-
+ptb_application = Application.builder().token(BOT_TOKEN).build()
 ptb_application.add_handler(CommandHandler("start", start))
-ptb_application.add_handler(
-    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-)
+ptb_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("INFO: Starting up application...")
 
-    # Set Webhook
     await ptb_application.bot.set_webhook(url=f"{APP_URL}/webhook")
     log.info("Webhook set → %s/webhook", APP_URL)
 
@@ -488,13 +403,10 @@ async def lifespan(app: FastAPI):
 
 app.router.lifespan_context = lifespan
 
-# Webhook endpoint
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
-    await ptb_application.update_queue.put(
-        Update.de_json(data, ptb_application.bot)
-    )
+    await ptb_application.update_queue.put(Update.de_json(data, ptb_application.bot))
     return Response(status_code=200)
 
 # ============================================================
@@ -629,7 +541,7 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
     return HTMLResponse(template)
 
 # ============================================================
-#   ADD RESOURCE (NO PASSWORD)  [unchanged]
+#   ADD RESOURCE (URL ONLY) ✅ UPDATED
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
@@ -641,22 +553,18 @@ async def admin_add(
     child_id: int = Form(...),
     subchild_id: str = Form(""),
     title: str = Form(...),
-    url: str = Form(""),
-    file: UploadFile | None = File(None),
+    url: str = Form(...),  # ✅ URL required
     admin_auth: str | None = Cookie(None),
 ):
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    if file and url.strip():
-        raise HTTPException(400, "لا يمكن رفع PDF وإدخال رابط معًا")
-
-    final_url = url.strip()
-    if file and file.filename:
-        final_url = await save_uploaded_file(file)
-
+    final_url = (url or "").strip()
     if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط أو ملف PDF")
+        raise HTTPException(400, "يجب إدخال رابط")
+
+    if not (final_url.startswith("http://") or final_url.startswith("https://")):
+        raise HTTPException(400, "الرابط يجب أن يبدأ بـ http:// أو https://")
 
     sub_val = int(subchild_id) if subchild_id else None
 
@@ -672,7 +580,7 @@ async def admin_add(
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   EDIT RESOURCE (URL ONLY)  ✅ UPDATED
+#   EDIT RESOURCE (URL ONLY) ✅ UPDATED
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
@@ -722,7 +630,6 @@ async def save_edit(
     if not final_url:
         raise HTTPException(400, "يجب إدخال رابط")
 
-    # (اختياري) تحقق بسيط من شكل الرابط
     if not (final_url.startswith("http://") or final_url.startswith("https://")):
         raise HTTPException(400, "الرابط يجب أن يبدأ بـ http:// أو https://")
 
