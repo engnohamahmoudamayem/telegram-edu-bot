@@ -185,6 +185,7 @@ async def send_resources(update: Update, st: dict):
 
     msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
     await update.message.reply_text(msg, parse_mode="HTML")
+
 # ============================================================
 #   START COMMAND
 # ============================================================
@@ -449,6 +450,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
+
 # ============================================================
 #   FASTAPI APP & TELEGRAM LIFECYCLE
 # ============================================================
@@ -627,7 +629,7 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
     return HTMLResponse(template)
 
 # ============================================================
-#   ADD RESOURCE (NO PASSWORD)
+#   ADD RESOURCE (NO PASSWORD)  [unchanged]
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
@@ -670,7 +672,7 @@ async def admin_add(
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   EDIT RESOURCE
+#   EDIT RESOURCE (URL ONLY)  ✅ UPDATED
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
@@ -690,18 +692,17 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
     </head>
     <body class='p-4'>
         <h3>تعديل المورد {rid}</h3>
-        <form method='post' enctype='multipart/form-data'>
+
+        <form method='post'>
             <label>العنوان:</label>
             <input name='title' class='form-control' value="{row['title']}">
 
             <label class='mt-3'>الرابط:</label>
             <input name='url' class='form-control' value="{row['url']}">
 
-            <label class='mt-3'>PDF جديد (اختياري):</label>
-            <input type='file' name='file' accept='.pdf' class='form-control'>
-
             <button class='btn btn-success mt-3'>حفظ</button>
         </form>
+
         <a href='/admin' class='btn btn-secondary mt-3'>رجوع</a>
     </body>
     </html>
@@ -711,19 +712,19 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
 async def save_edit(
     rid: int,
     title: str = Form(...),
-    url: str = Form(""),
-    file: UploadFile | None = File(None),
+    url: str = Form(...),
     admin_auth: str | None = Cookie(None),
 ):
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    final_url = url.strip()
-    if file and file.filename:
-        final_url = await save_uploaded_file(file)
-
+    final_url = (url or "").strip()
     if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط أو PDF")
+        raise HTTPException(400, "يجب إدخال رابط")
+
+    # (اختياري) تحقق بسيط من شكل الرابط
+    if not (final_url.startswith("http://") or final_url.startswith("https://")):
+        raise HTTPException(400, "الرابط يجب أن يبدأ بـ http:// أو https://")
 
     db_execute(
         "UPDATE resources SET title=%s, url=%s WHERE id=%s",
