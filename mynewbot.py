@@ -62,18 +62,15 @@ log = logging.getLogger("EDU_BOT")
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 
-
 def db_fetch_all(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchall()
 
-
 def db_fetch_one(q, p=()):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(q, p)
         return cur.fetchone()
-
 
 def db_execute(q, p=()):
     with conn.cursor() as cur:
@@ -137,11 +134,10 @@ def init_db():
     cur.close()
     log.info("✅ Database ready!")
 
-
 init_db()
 
 # ============================================================
-#   FILE UPLOAD (kept for compatibility, but blocked in admin)
+#   FILE UPLOAD
 # ============================================================
 async def save_uploaded_file(file: UploadFile):
     if not file or not file.filename:
@@ -157,7 +153,6 @@ async def save_uploaded_file(file: UploadFile):
 #   BOT STATE + KEYBOARD
 # ============================================================
 user_state = {}
-
 
 def make_keyboard(opts):
     labels = [o for o in opts if o]
@@ -190,7 +185,6 @@ async def send_resources(update: Update, st: dict):
 
     msg = "\n".join(f"▪ <a href='{r['url']}'>{r['title']}</a>" for r in rows)
     await update.message.reply_text(msg, parse_mode="HTML")
-
 # ============================================================
 #   START COMMAND
 # ============================================================
@@ -296,7 +290,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 (st["option_id"],),
             )
             return await update.message.reply_text(
-                "اختر نوع المحتوى:",
+                "اختر الفصل أو الوحدة:",
                 reply_markup=make_keyboard([r["name"] for r in rows]),
             )
 
@@ -413,7 +407,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return await send_resources(update, st)
 
         return await update.message.reply_text(
-            "اختر نوع المحتوى:",
+            "اختر الفصل أو الوحدة:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
@@ -440,7 +434,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return await send_resources(update, st)
 
         return await update.message.reply_text(
-            "اختر المحتوى:",
+            "اختر الدرس الفرعي:",
             reply_markup=make_keyboard([r["name"] for r in rows]),
         )
 
@@ -455,7 +449,6 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         st["subchild_id"] = row["id"]
         return await send_resources(update, st)
-
 # ============================================================
 #   FASTAPI APP & TELEGRAM LIFECYCLE
 # ============================================================
@@ -634,7 +627,7 @@ def admin_panel(admin_auth: str | None = Cookie(None)):
     return HTMLResponse(template)
 
 # ============================================================
-#   ADD RESOURCE (LINK ONLY)
+#   ADD RESOURCE (NO PASSWORD)
 # ============================================================
 @app.post("/admin/add")
 async def admin_add(
@@ -653,21 +646,21 @@ async def admin_add(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    # ✅ Block any file upload (even if someone sends it manually)
-    if file and getattr(file, "filename", None) and file.filename and file.filename.strip():
-        raise HTTPException(400, "الرفع غير مسموح. الرجاء إدخال رابط فقط.")
+    if file and url.strip():
+        raise HTTPException(400, "لا يمكن رفع PDF وإدخال رابط معًا")
 
     final_url = url.strip()
-    if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط فقط")
+    if file and file.filename:
+        final_url = await save_uploaded_file(file)
 
-    sub_val = int(subchild_id) if subchild_id.strip() else None
+    if not final_url:
+        raise HTTPException(400, "يجب إدخال رابط أو ملف PDF")
+
+    sub_val = int(subchild_id) if subchild_id else None
 
     db_execute("""
-        INSERT INTO resources (
-            subject_id, option_id, child_id, subchild_id,
-            stage_id, term_id, grade_id, title, url
-        )
+        INSERT INTO resources (subject_id, option_id, child_id, subchild_id,
+                               stage_id, term_id, grade_id, title, url)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (
         subject_id, option_id, child_id, sub_val,
@@ -677,7 +670,7 @@ async def admin_add(
     return RedirectResponse("/admin", status_code=303)
 
 # ============================================================
-#   EDIT RESOURCE (LINK ONLY)
+#   EDIT RESOURCE
 # ============================================================
 @app.get("/admin/edit/{rid}", response_class=HTMLResponse)
 def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
@@ -689,42 +682,27 @@ def edit_page(rid: int, admin_auth: str | None = Cookie(None)):
         raise HTTPException(404, "غير موجود")
 
     return HTMLResponse(f"""
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
+    <html dir='rtl'>
     <head>
-        <meta charset="utf-8">
-        <title>تعديل المورد</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <meta charset='utf-8'>
+        <title>تعديل</title>
+        <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
     </head>
-    <body class="p-4 bg-light">
-        <div class="container" style="max-width:600px;">
-            <h3 class="mb-4 text-center">✏️ تعديل المورد رقم {rid}</h3>
+    <body class='p-4'>
+        <h3>تعديل المورد {rid}</h3>
+        <form method='post' enctype='multipart/form-data'>
+            <label>العنوان:</label>
+            <input name='title' class='form-control' value="{row['title']}">
 
-            <form method="post">
-                <div class="mb-3">
-                    <label class="form-label">العنوان</label>
-                    <input name="title" class="form-control" value="{row['title']}" required>
-                </div>
+            <label class='mt-3'>الرابط:</label>
+            <input name='url' class='form-control' value="{row['url']}">
 
-                <div class="mb-3">
-                    <label class="form-label">الرابط (Link فقط)</label>
-                    <input type="url" name="url" class="form-control"
-                           value="{row['url']}"
-                           placeholder="ضع رابط Google Drive / YouTube / PDF..."
-                           required>
-                </div>
+            <label class='mt-3'>PDF جديد (اختياري):</label>
+            <input type='file' name='file' accept='.pdf' class='form-control'>
 
-                <div class="alert alert-info">
-                    ✅ التعديل يتم عبر <b>الرابط فقط</b><br>
-                    ❌ لا يوجد رفع ملفات PDF
-                </div>
-
-                <div class="d-flex gap-2">
-                    <button class="btn btn-success">💾 حفظ</button>
-                    <a href="/admin" class="btn btn-secondary">↩️ رجوع</a>
-                </div>
-            </form>
-        </div>
+            <button class='btn btn-success mt-3'>حفظ</button>
+        </form>
+        <a href='/admin' class='btn btn-secondary mt-3'>رجوع</a>
     </body>
     </html>
     """)
@@ -740,13 +718,12 @@ async def save_edit(
     if admin_auth != "yes":
         return RedirectResponse("/login")
 
-    # ✅ Block any file upload
-    if file and getattr(file, "filename", None) and file.filename and file.filename.strip():
-        raise HTTPException(400, "الرفع غير مسموح. الرجاء إدخال رابط فقط.")
-
     final_url = url.strip()
+    if file and file.filename:
+        final_url = await save_uploaded_file(file)
+
     if not final_url:
-        raise HTTPException(400, "يجب إدخال رابط")
+        raise HTTPException(400, "يجب إدخال رابط أو PDF")
 
     db_execute(
         "UPDATE resources SET title=%s, url=%s WHERE id=%s",
